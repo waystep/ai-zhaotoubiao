@@ -8,6 +8,7 @@ import {
 } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { mineruClient } from "@/lib/ai/mineru-client";
+import { saveImages } from "@/lib/storage/image-storage";
 import fs from "fs";
 
 interface RouteContext {
@@ -100,6 +101,9 @@ export async function POST(
       filePath: doc.storagePath,
       mimeType: doc.mimeType,
       fileName: doc.originalName,
+      options: {
+        returnImages: true, // 返回图片信息
+      },
     });
 
     // 存储taskId
@@ -203,6 +207,12 @@ export async function GET(
           const parseResult = await mineruClient.getParseResult(doc.mineruTaskId);
 
           console.log(`[Parse] 结果获取完成: ${parseResult.totalPages}页, ${parseResult.blocks.length}区块`);
+
+          // 保存图片到文件系统
+          if (parseResult.imagesData && Object.keys(parseResult.imagesData).length > 0) {
+            console.log(`[Parse] 保存 ${Object.keys(parseResult.imagesData).length} 张图片`);
+            await saveImages(documentId, parseResult.imagesData);
+          }
 
           // 存储解析结果
           const [parsedResultRecord] = await db

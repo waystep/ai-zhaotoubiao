@@ -21,6 +21,8 @@ export interface MineruParseOptions {
   extractTables?: boolean;
   // 是否提取图片
   extractImages?: boolean;
+  // 是否返回图片（MinerU API 参数）
+  returnImages?: boolean;
   // 是否保留布局
   preserveLayout?: boolean;
   // 返回格式: json, markdown, html
@@ -73,6 +75,8 @@ export interface MineruParseResult {
   tables: MineruTable[];
   images: MineruImage[];
   equations: MineruEquation[];
+  // MinerU 返回的原始图片数据（base64）
+  imagesData?: Record<string, string>;
   raw: MineruApiResponse;
 }
 

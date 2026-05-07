@@ -151,10 +151,32 @@ export class MineruClient {
     const formData = new FormData();
     const blob = new Blob([fileBuffer], { type: params.mimeType });
     formData.append("files", blob, fileName);
+
+    // 语言设置（数组格式）
     formData.append("lang_list", "ch");
+
+    // 解析后端
     formData.append("backend", this.backend);
+
+    // 解析方法
+    const options = params.options || {};
+    formData.append("parse_method", options.parseMethod || "auto");
+
+    // 启用表格和公式解析
+    formData.append("table_enable", "true");
+    formData.append("formula_enable", "true");
+
+    // 返回格式设置
     formData.append("return_md", "true");
     formData.append("return_middle_json", "true");
+    formData.append("return_content_list", "true");
+
+    // 是否返回图片（通过 options 配置）
+    const returnImages = options.returnImages ?? false;
+    formData.append("return_images", returnImages ? "true" : "false");
+    formData.append("response_format_zip", "false");
+
+    console.log(`[MinerU] 异步任务参数: return_images=${returnImages}`);
 
     const response = await fetch(`${this.baseUrl}/tasks`, {
       method: "POST",
@@ -165,6 +187,8 @@ export class MineruClient {
     });
 
     if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[MinerU] 提交任务失败: ${response.status} - ${errorText}`);
       throw new Error(`提交任务失败: ${response.status}`);
     }
 
@@ -351,7 +375,7 @@ export class MineruClient {
       }
     }
 
-    // 解析 content_list
+    // 解析 content_list（注意：MinerU 可能返回字符串数组形式的 JSON）
     if (resultData.content_list) {
       const cl = resultData.content_list;
       if (typeof cl === "string") {
@@ -362,8 +386,34 @@ export class MineruClient {
           console.log("[MinerU] content_list 解析失败:", e);
         }
       } else if (Array.isArray(cl)) {
-        contentListParsed = cl;
+        // 可能是字符串数组（每个字符是一个元素）或正常数组
+        if (cl.length > 0 && typeof cl[0] === "string" && cl[0].length === 1) {
+          // 字符串数组，需要拼接后解析
+          try {
+            const combined = cl.join("");
+            contentListParsed = JSON.parse(combined);
+            console.log("[MinerU] content_list (拼接后) 解析成功, 数量:", contentListParsed?.length);
+          } catch (e) {
+            console.log("[MinerU] content_list 拼接解析失败:", e);
+            contentListParsed = null;
+          }
+        } else {
+          contentListParsed = cl as Array<Record<string, unknown>>;
+        }
       }
+    }
+
+    // ===== 解析 images 对象 =====
+    // MinerU 返回格式: { "hash.jpg": "data:image/jpeg;base64,...", ... }
+    const imagesData: Record<string, string> = {};
+    if (resultData.images && typeof resultData.images === "object") {
+      const imgObj = resultData.images as Record<string, string>;
+      for (const [filename, base64Data] of Object.entries(imgObj)) {
+        if (typeof base64Data === "string" && base64Data.startsWith("data:")) {
+          imagesData[filename] = base64Data;
+        }
+      }
+      console.log("[MinerU] 解析到", Object.keys(imagesData).length, "张图片");
     }
 
     // ===== 优先使用 content_list（bbox 信息完整）=====
@@ -375,8 +425,8 @@ export class MineruClient {
       for (const item of items) {
         // 页码从 page_idx 获取，转换为从1开始
         const pageNumber = ((item.page_idx ?? item.page_no ?? item.page ?? 0) as number) + 1;
-        const content = (item.text ?? item.content ?? "") as string;
         const type = (item.type ?? "text") as string;
+        const blockType = this.normalizeBlockType(type);
 
         // bbox 格式：[x0, y0, x1, y1]
         const bboxRaw = item.bbox;
@@ -390,7 +440,29 @@ export class MineruClient {
           };
         }
 
-        const blockType = this.normalizeBlockType(type);
+        // 根据类型提取不同内容
+        let content = "";
+        let imagePath: string | undefined;
+
+        if (blockType === "image") {
+          // image 类型：提取图片路径
+          imagePath = (item.image_path ?? item.img_path ?? item.path) as string | undefined;
+          content = imagePath || `[图片 第${pageNumber}页]`;
+
+          // 同时添加到 images 数组
+          if (imagePath) {
+            images.push({
+              id: `img_${blockIndex}`,
+              pageNumber,
+              bbox: bbox || { x0: 0, y0: 0, x1: 0, y1: 0 },
+              imagePath,
+            });
+          }
+        } else {
+          // 其他类型：提取文字内容
+          content = (item.text ?? item.content ?? "") as string;
+        }
+
         const level = (item.text_level ?? item.level) as number | undefined;
 
         blocks.push({
@@ -401,12 +473,14 @@ export class MineruClient {
           content,
           bbox,
           level,
+          imagePath,
         });
 
         blockIndex++;
       }
 
       console.log("[MinerU] 从 content_list 提取了", blocks.length, "个区块");
+      console.log("[MinerU] 其中图片区块:", blocks.filter(b => b.type === "image").length);
 
       // 统计有效 bbox 数量
       const validBboxCount = blocks.filter(b => b.bbox && (b.bbox.x0 !== 0 || b.bbox.y0 !== 0)).length;
@@ -446,7 +520,7 @@ export class MineruClient {
       }
     }
 
-    console.log(`[MinerU] 转换完成: ${blocks.length} 个区块, ${tables.length} 个表格, ${equations.length} 个公式, ${maxPage} 页`);
+    console.log(`[MinerU] 转换完成: ${blocks.length} 个区块, ${tables.length} 个表格, ${equations.length} 个公式, ${maxPage} 页, ${Object.keys(imagesData).length} 张图片`);
 
     return {
       taskId: taskId || `parse_${Date.now()}`,
@@ -462,6 +536,7 @@ export class MineruClient {
       tables,
       images,
       equations,
+      imagesData,
       raw: {
         status: "success",
         ...apiResult,
