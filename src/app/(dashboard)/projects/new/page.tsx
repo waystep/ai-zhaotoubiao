@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { FolderOpen, Loader2 } from "lucide-react";
+import { FolderOpen, Loader2, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -70,6 +70,16 @@ export default function NewProjectPage() {
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="mb-2 -ml-2 text-muted-foreground hover:text-foreground"
+          onClick={() => router.push("/projects")}
+        >
+          <ArrowLeft className="h-4 w-4 mr-1" />
+          返回项目列表
+        </Button>
         <h2 className="text-3xl font-bold tracking-tight">创建新项目</h2>
         <p className="text-muted-foreground">
           填写项目信息，创建招标审查项目
@@ -165,7 +175,7 @@ export default function NewProjectPage() {
               </Button>
               <Button
                 variant="outline"
-                onClick={() => router.back()}
+                onClick={() => router.push("/projects")}
                 disabled={isLoading}
               >
                 取消

@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ClipboardCheck, Loader2, Plus, CheckCircle, Clock, AlertCircle } from "lucide-react";
+import { ClipboardCheck, Loader2, Plus, CheckCircle, Clock, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -109,14 +109,24 @@ export default function ProjectReportsPage() {
   return (
     <div className="space-y-6">
       {/* 头部 */}
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between gap-4">
         <div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="mb-2 -ml-2 text-muted-foreground hover:text-foreground"
+            onClick={() => router.push(`/projects/${projectId}`)}
+          >
+            <ArrowLeft className="h-4 w-4 mr-1" />
+            返回项目详情
+          </Button>
           <h2 className="text-3xl font-bold tracking-tight">审查报告</h2>
           <p className="text-muted-foreground">
             查看和管理项目的审查报告
           </p>
         </div>
-        <Link href={`/projects/${projectId}/reports/new`}>
+        <Link href={`/projects/${projectId}/reports/new`} className="shrink-0">
           <Button>
             <Plus className="mr-2 h-4 w-4" />
             创建审查任务

@@ -247,8 +247,8 @@ export default function ReportDetailPage() {
           <p className="text-muted-foreground text-center mb-4">
             请检查报告 ID 是否正确
           </p>
-          <Button variant="outline" onClick={() => router.back()}>
-            返回
+          <Button variant="outline" onClick={() => router.push("/projects")}>
+            返回项目列表
           </Button>
         </CardContent>
       </Card>
@@ -265,7 +265,7 @@ export default function ReportDetailPage() {
             className="inline-flex items-center text-sm text-muted-foreground hover:text-primary mb-2"
           >
             <ArrowLeft className="h-4 w-4 mr-1" />
-            返回项目
+            返回项目详情
           </Link>
           <h2 className="text-3xl font-bold tracking-tight">审查报告</h2>
           <p className="text-muted-foreground">

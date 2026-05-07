@@ -12,6 +12,7 @@ import {
   Calendar,
   DollarSign,
   Settings,
+  ArrowLeft,
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -57,6 +58,13 @@ export default async function ProjectDetailPage({ params }: PageProps) {
       {/* 项目头部 */}
       <div className="flex items-start justify-between">
         <div>
+          <Link
+            href="/projects"
+            className="inline-flex items-center text-sm text-muted-foreground hover:text-primary mb-2"
+          >
+            <ArrowLeft className="h-4 w-4 mr-1" />
+            返回项目列表
+          </Link>
           <h2 className="text-3xl font-bold tracking-tight">{project.name}</h2>
           <p className="text-muted-foreground">
             项目编号: {project.projectNo}

@@ -35,6 +35,7 @@ interface Document {
   docType: string;
   parseStatus: string;
   createdAt: string;
+  project?: { id: string; name?: string; projectNo?: string } | null;
 }
 
 interface IssueLocation {
@@ -167,8 +168,8 @@ export default function DocumentDetailPage() {
           <p className="text-muted-foreground text-center mb-4">
             请检查文档 ID 是否正确
           </p>
-          <Button variant="outline" onClick={() => router.back()}>
-            返回
+          <Button variant="outline" onClick={() => router.push("/documents")}>
+            返回文件列表
           </Button>
         </CardContent>
       </Card>
@@ -181,13 +182,18 @@ export default function DocumentDetailPage() {
       <div className="flex items-start justify-between">
         <div>
           <Button
+            type="button"
             variant="ghost"
             size="sm"
-            className="mb-2"
-            onClick={() => router.back()}
+            className="mb-2 -ml-2 text-muted-foreground hover:text-foreground"
+            onClick={() =>
+              document.project?.id
+                ? router.push(`/projects/${document.project.id}`)
+                : router.push("/documents")
+            }
           >
             <ArrowLeft className="h-4 w-4 mr-1" />
-            返回
+            {document.project?.id ? "返回项目详情" : "返回文件列表"}
           </Button>
           <h2 className="text-3xl font-bold tracking-tight">{document.name}</h2>
           <p className="text-muted-foreground">

@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useParams } from "next/navigation";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { FileText, Upload, Loader2, CheckCircle, XCircle, Clock, Trash2, Play } from "lucide-react";
+import { FileText, Loader2, CheckCircle, XCircle, Clock, Trash2, Play, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 
 interface Document {
   id: string;
@@ -16,7 +17,19 @@ interface Document {
   createdAt: string;
 }
 
+const DOC_TYPE_FILTERS: { value: string; label: string }[] = [
+  { value: "tender_doc", label: "招标文件" },
+  { value: "legal_doc", label: "法律文件" },
+  { value: "bid_doc", label: "投标文件" },
+  { value: "review_report", label: "审查报告" },
+];
+
+function initialTypeFilters(): Record<string, boolean> {
+  return Object.fromEntries(DOC_TYPE_FILTERS.map((t) => [t.value, true]));
+}
+
 export default function ProjectDocumentsPage() {
+  const router = useRouter();
   const params = useParams();
   const projectId = params.projectId as string;
   const { toast } = useToast();
@@ -24,6 +37,41 @@ export default function ProjectDocumentsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [deletingIds, setDeletingIds] = useState<string[]>([]);
   const [parsingIds, setParsingIds] = useState<string[]>([]);
+  const [typeFilterEnabled, setTypeFilterEnabled] = useState<Record<string, boolean>>(initialTypeFilters);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchBusy, setBatchBusy] = useState(false);
+  const selectAllRef = useRef<HTMLInputElement>(null);
+
+  const filteredDocuments = useMemo(() => {
+    const enabledTypes = DOC_TYPE_FILTERS.filter((t) => typeFilterEnabled[t.value]).map((t) => t.value);
+    if (enabledTypes.length === 0) return [];
+    return documents.filter((d) => enabledTypes.includes(d.docType));
+  }, [documents, typeFilterEnabled]);
+
+  const selectableDocs = useMemo(
+    () => filteredDocuments.filter((d) => d.parseStatus !== "processing"),
+    [filteredDocuments]
+  );
+
+  const allSelectableSelected =
+    selectableDocs.length > 0 && selectableDocs.every((d) => selectedIds.has(d.id));
+
+  const someSelected = selectedIds.size > 0;
+
+  useEffect(() => {
+    const visible = new Set(filteredDocuments.map((d) => d.id));
+    setSelectedIds((prev) => {
+      const next = new Set([...prev].filter((id) => visible.has(id)));
+      if (next.size === prev.size && [...next].every((id) => prev.has(id))) return prev;
+      return next;
+    });
+  }, [filteredDocuments]);
+
+  useEffect(() => {
+    const el = selectAllRef.current;
+    if (!el) return;
+    el.indeterminate = someSelected && !allSelectableSelected;
+  }, [someSelected, allSelectableSelected]);
 
   useEffect(() => {
     fetchDocuments();
@@ -43,12 +91,32 @@ export default function ProjectDocumentsPage() {
     }
   }
 
-  async function handleParse(documentId: string) {
-    try {
-      const response = await fetch(`/api/documents/${documentId}/parse`, {
-        method: "POST",
-      });
+  function toggleTypeFilter(value: string) {
+    setTypeFilterEnabled((prev) => ({ ...prev, [value]: !prev[value] }));
+  }
 
+  function toggleSelectAll() {
+    if (allSelectableSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(selectableDocs.map((d) => d.id)));
+    }
+  }
+
+  function toggleRow(doc: Document) {
+    if (doc.parseStatus === "processing") return;
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(doc.id)) next.delete(doc.id);
+      else next.add(doc.id);
+      return next;
+    });
+  }
+
+  async function handleParsePending(documentId: string) {
+    setParsingIds((prev) => [...prev, documentId]);
+    try {
+      const response = await fetch(`/api/documents/${documentId}/parse`, { method: "POST" });
       if (response.ok) {
         toast({
           title: "解析任务已启动",
@@ -56,44 +124,10 @@ export default function ProjectDocumentsPage() {
         });
         fetchDocuments();
       } else {
-        const error = await response.json();
+        const error = await response.json().catch(() => ({}));
         toast({
           title: "解析失败",
-          description: error.error,
-          variant: "destructive",
-        });
-      }
-    } catch {
-      toast({
-        title: "网络错误",
-        description: "请检查您的网络连接",
-        variant: "destructive",
-      });
-    }
-  }
-
-  async function handleDelete(documentId: string, documentName: string) {
-    if (!confirm(`确定要删除文档 "${documentName}" 吗？此操作不可撤销。`)) {
-      return;
-    }
-
-    setDeletingIds(prev => [...prev, documentId]);
-    try {
-      const response = await fetch(`/api/documents/${documentId}`, {
-        method: "DELETE",
-      });
-
-      if (response.ok) {
-        toast({
-          title: "删除成功",
-          description: "文档已删除",
-        });
-        setDocuments(prev => prev.filter(d => d.id !== documentId));
-      } else {
-        const error = await response.json();
-        toast({
-          title: "删除失败",
-          description: error.error || "删除文档失败",
+          description: error.error || "请求失败",
           variant: "destructive",
         });
       }
@@ -104,12 +138,12 @@ export default function ProjectDocumentsPage() {
         variant: "destructive",
       });
     } finally {
-      setDeletingIds(prev => prev.filter(id => id !== documentId));
+      setParsingIds((prev) => prev.filter((id) => id !== documentId));
     }
   }
 
   async function handleReparse(documentId: string) {
-    setParsingIds(prev => [...prev, documentId]);
+    setParsingIds((prev) => [...prev, documentId]);
     try {
       const response = await fetch(`/api/documents/${documentId}/parse`, {
         method: "POST",
@@ -136,8 +170,156 @@ export default function ProjectDocumentsPage() {
         variant: "destructive",
       });
     } finally {
-      setParsingIds(prev => prev.filter(id => id !== documentId));
+      setParsingIds((prev) => prev.filter((id) => id !== documentId));
     }
+  }
+
+  async function handleDelete(documentId: string, documentName: string) {
+    if (!confirm(`确定要删除文档 "${documentName}" 吗？此操作不可撤销。`)) {
+      return;
+    }
+
+    setDeletingIds((prev) => [...prev, documentId]);
+    try {
+      const response = await fetch(`/api/documents/${documentId}`, {
+        method: "DELETE",
+      });
+
+      if (response.ok) {
+        toast({
+          title: "删除成功",
+          description: "文档已删除",
+        });
+        setDocuments((prev) => prev.filter((d) => d.id !== documentId));
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          next.delete(documentId);
+          return next;
+        });
+      } else {
+        const error = await response.json();
+        toast({
+          title: "删除失败",
+          description: error.error || "删除文档失败",
+          variant: "destructive",
+        });
+      }
+    } catch {
+      toast({
+        title: "网络错误",
+        description: "请检查您的网络连接",
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingIds((prev) => prev.filter((id) => id !== documentId));
+    }
+  }
+
+  async function handleBatchDelete() {
+    const ids = [...selectedIds].filter((id) => {
+      const d = documents.find((x) => x.id === id);
+      return d && d.parseStatus !== "processing";
+    });
+    if (ids.length === 0) {
+      toast({
+        title: "无法删除",
+        description: "没有可删除的文档（解析中的文档需等待完成后再删）",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!confirm(`确定删除已选的 ${ids.length} 个文档？此操作不可撤销。`)) {
+      return;
+    }
+
+    setBatchBusy(true);
+    let ok = 0;
+    const failed: string[] = [];
+    for (const id of ids) {
+      const doc = documents.find((d) => d.id === id);
+      try {
+        const response = await fetch(`/api/documents/${id}`, { method: "DELETE" });
+        if (response.ok) {
+          ok += 1;
+          setDocuments((prev) => prev.filter((d) => d.id !== id));
+        } else {
+          const err = await response.json().catch(() => ({}));
+          failed.push(`${doc?.name ?? id}: ${err.error || "失败"}`);
+        }
+      } catch {
+        failed.push(`${doc?.name ?? id}: 网络错误`);
+      }
+    }
+    setSelectedIds(new Set());
+    setBatchBusy(false);
+    if (ok > 0) {
+      toast({
+        title: "批量删除完成",
+        description:
+          failed.length === 0
+            ? `已删除 ${ok} 个文档`
+            : `已删除 ${ok} 个；${failed.length} 个失败`,
+      });
+    }
+    if (failed.length > 0 && ok === 0) {
+      toast({
+        title: "删除失败",
+        description: failed.slice(0, 3).join("；"),
+        variant: "destructive",
+      });
+    } else if (failed.length > 0) {
+      toast({
+        title: "部分删除失败",
+        description: failed.slice(0, 3).join("；"),
+        variant: "destructive",
+      });
+    }
+    fetchDocuments();
+  }
+
+  async function handleBatchParse() {
+    const targets = [...selectedIds]
+      .map((id) => documents.find((d) => d.id === id))
+      .filter(
+        (d): d is Document =>
+          !!d && (d.parseStatus === "pending" || d.parseStatus === "failed")
+      );
+    if (targets.length === 0) {
+      toast({
+        title: "没有可解析的文档",
+        description: "请选择状态为「待解析」或「解析失败」的文档",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setBatchBusy(true);
+    let ok = 0;
+    const failed: string[] = [];
+    for (const d of targets) {
+      try {
+        const response = await fetch(`/api/documents/${d.id}/parse`, { method: "POST" });
+        if (response.ok) ok += 1;
+        else {
+          const err = await response.json().catch(() => ({}));
+          failed.push(`${d.name}: ${err.error || "失败"}`);
+        }
+      } catch {
+        failed.push(`${d.name}: 网络错误`);
+      }
+    }
+    setBatchBusy(false);
+    setSelectedIds(new Set());
+    const failHint =
+      failed.length > 0
+        ? ` 失败 ${failed.length} 个：${failed.slice(0, 2).join("；")}${failed.length > 2 ? "…" : ""}`
+        : "";
+    toast({
+      title: failed.length > 0 && ok === 0 ? "批量解析失败" : "批量解析已提交",
+      description: `已提交 ${ok} 个解析任务。${failHint}`.trim(),
+      ...(failed.length > 0 && ok === 0 ? { variant: "destructive" as const } : {}),
+    });
+    fetchDocuments();
   }
 
   const getDocTypeLabel = (docType: string) => {
@@ -181,10 +363,30 @@ export default function ProjectDocumentsPage() {
     }
   };
 
+  const batchParseableCount = [...selectedIds].filter((id) => {
+    const d = documents.find((x) => x.id === id);
+    return d && (d.parseStatus === "pending" || d.parseStatus === "failed");
+  }).length;
+
+  const batchDeletableCount = [...selectedIds].filter((id) => {
+    const d = documents.find((x) => x.id === id);
+    return d && d.parseStatus !== "processing";
+  }).length;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="mb-2 -ml-2 text-muted-foreground hover:text-foreground"
+            onClick={() => router.push(`/projects/${projectId}`)}
+          >
+            <ArrowLeft className="h-4 w-4 mr-1" />
+            返回项目详情
+          </Button>
           <h2 className="text-3xl font-bold tracking-tight">文档管理</h2>
           <p className="text-muted-foreground">
             管理项目相关文档
@@ -209,83 +411,196 @@ export default function ProjectDocumentsPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-4">
-          {documents.map((doc) => (
-            <Card key={doc.id}>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0">
-                <div className="flex items-center gap-4">
-                  <FileText className="h-5 w-5 text-primary" />
-                  <div>
-                    <CardTitle className="text-base">{doc.name}</CardTitle>
-                    <CardDescription>
-                      {getDocTypeLabel(doc.docType)} ·
-                      {new Date(doc.createdAt).toLocaleDateString("zh-CN")}
-                    </CardDescription>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-2">
-                    {getParseStatusIcon(doc.parseStatus)}
-                    <span className="text-sm text-muted-foreground">
-                      {getParseStatusLabel(doc.parseStatus)}
-                    </span>
-                  </div>
-                  {doc.parseStatus === "pending" && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleParse(doc.id)}
-                      disabled={parsingIds.includes(doc.id)}
-                    >
-                      {parsingIds.includes(doc.id) ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        "解析"
-                      )}
-                    </Button>
-                  )}
-                  {doc.parseStatus === "failed" && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleReparse(doc.id)}
-                      disabled={parsingIds.includes(doc.id)}
-                    >
-                      {parsingIds.includes(doc.id) ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <>
-                          <Play className="h-4 w-4 mr-1" />
-                          重新解析
-                        </>
-                      )}
-                    </Button>
-                  )}
-                  {doc.parseStatus === "completed" && (
-                    <Link href={`/projects/${projectId}/documents/${doc.id}`}>
-                      <Button size="sm" variant="outline">
-                        查看详情
-                      </Button>
-                    </Link>
-                  )}
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleDelete(doc.id, doc.name)}
-                    disabled={deletingIds.includes(doc.id) || doc.parseStatus === "processing"}
-                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                  >
-                    {deletingIds.includes(doc.id) ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Trash2 className="h-4 w-4" />
-                    )}
-                  </Button>
-                </div>
-              </CardHeader>
+        <>
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">按类型筛选</CardTitle>
+              <CardDescription>勾选要显示的类型；未勾选的类型将从列表中隐藏</CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-wrap gap-4 pt-0">
+              {DOC_TYPE_FILTERS.map((t) => (
+                <label
+                  key={t.value}
+                  className="flex items-center gap-2 text-sm cursor-pointer select-none"
+                >
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-input accent-primary"
+                    checked={typeFilterEnabled[t.value] ?? false}
+                    onChange={() => toggleTypeFilter(t.value)}
+                  />
+                  <span>{t.label}</span>
+                </label>
+              ))}
+              <Button
+                type="button"
+                variant="link"
+                className="h-auto p-0 text-sm"
+                onClick={() => setTypeFilterEnabled(initialTypeFilters())}
+              >
+                重置为全选
+              </Button>
+            </CardContent>
+          </Card>
+
+          {DOC_TYPE_FILTERS.every((t) => !typeFilterEnabled[t.value]) ? (
+            <Card>
+              <CardContent className="py-8 text-center text-muted-foreground text-sm">
+                请至少勾选一种文档类型，或点击「重置为全选」
+              </CardContent>
             </Card>
-          ))}
-        </div>
+          ) : filteredDocuments.length === 0 ? (
+            <Card>
+              <CardContent className="py-8 text-center text-muted-foreground text-sm">
+                当前筛选条件下没有文档
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-card px-4 py-3">
+                <label className="flex items-center gap-2 text-sm font-medium cursor-pointer select-none">
+                  <input
+                    ref={selectAllRef}
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-input accent-primary"
+                    checked={allSelectableSelected}
+                    onChange={toggleSelectAll}
+                    disabled={batchBusy || selectableDocs.length === 0}
+                  />
+                  全选
+                  <span className="text-muted-foreground font-normal">
+                    （{selectedIds.size}/{selectableDocs.length}）
+                  </span>
+                </label>
+                <div className="h-4 w-px bg-border hidden sm:block" />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={batchBusy || batchParseableCount === 0}
+                  onClick={handleBatchParse}
+                >
+                  {batchBusy ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    `批量解析${batchParseableCount > 0 ? ` (${batchParseableCount})` : ""}`
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={batchBusy || batchDeletableCount === 0}
+                  className="text-destructive hover:text-destructive"
+                  onClick={handleBatchDelete}
+                >
+                  {batchBusy ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    `批量删除${batchDeletableCount > 0 ? ` (${batchDeletableCount})` : ""}`
+                  )}
+                </Button>
+              </div>
+
+              <div className="grid gap-4">
+                {filteredDocuments.map((doc) => {
+                  const isProcessing = doc.parseStatus === "processing";
+                  const isSelected = selectedIds.has(doc.id);
+                  return (
+                    <Card
+                      key={doc.id}
+                      className={cn(isSelected && "ring-2 ring-primary/30 border-primary/40")}
+                    >
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0 gap-3">
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 shrink-0 rounded border-input accent-primary"
+                            checked={isSelected}
+                            disabled={isProcessing || batchBusy}
+                            onChange={() => toggleRow(doc)}
+                            aria-label={`选择 ${doc.name}`}
+                          />
+                          <FileText className="h-5 w-5 text-primary shrink-0" />
+                          <div className="min-w-0">
+                            <CardTitle className="text-base truncate">{doc.name}</CardTitle>
+                            <CardDescription>
+                              {getDocTypeLabel(doc.docType)} ·
+                              {new Date(doc.createdAt).toLocaleDateString("zh-CN")}
+                            </CardDescription>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 sm:gap-4 shrink-0 flex-wrap justify-end">
+                          <div className="flex items-center gap-2">
+                            {getParseStatusIcon(doc.parseStatus)}
+                            <span className="text-sm text-muted-foreground whitespace-nowrap">
+                              {getParseStatusLabel(doc.parseStatus)}
+                            </span>
+                          </div>
+                          {doc.parseStatus === "pending" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleParsePending(doc.id)}
+                              disabled={parsingIds.includes(doc.id) || batchBusy}
+                            >
+                              {parsingIds.includes(doc.id) ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                "解析"
+                              )}
+                            </Button>
+                          )}
+                          {doc.parseStatus === "failed" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleReparse(doc.id)}
+                              disabled={parsingIds.includes(doc.id) || batchBusy}
+                            >
+                              {parsingIds.includes(doc.id) ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <>
+                                  <Play className="h-4 w-4 mr-1" />
+                                  重新解析
+                                </>
+                              )}
+                            </Button>
+                          )}
+                          {doc.parseStatus === "completed" && (
+                            <Link href={`/projects/${projectId}/documents/${doc.id}`}>
+                              <Button size="sm" variant="outline" disabled={batchBusy}>
+                                查看详情
+                              </Button>
+                            </Link>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleDelete(doc.id, doc.name)}
+                            disabled={
+                              deletingIds.includes(doc.id) ||
+                              doc.parseStatus === "processing" ||
+                              batchBusy
+                            }
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          >
+                            {deletingIds.includes(doc.id) ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </div>
+                      </CardHeader>
+                    </Card>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </>
       )}
     </div>
   );

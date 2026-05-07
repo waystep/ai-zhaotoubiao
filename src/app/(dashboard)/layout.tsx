@@ -31,6 +31,11 @@ const navigation = [
   { name: "设置", href: "/settings", icon: Settings },
 ];
 
+function navItemIsActive(pathname: string, href: string): boolean {
+  if (pathname === href) return true;
+  return href !== "/" && pathname.startsWith(`${href}/`);
+}
+
 export default function DashboardLayout({
   children,
 }: {
@@ -51,11 +56,12 @@ export default function DashboardLayout({
 
         <nav className="flex-1 p-4 space-y-1">
           {navigation.map((item) => {
-            const isActive = pathname === item.href;
+            const isActive = navItemIsActive(pathname, item.href);
             return (
               <Link
                 key={item.name}
                 href={item.href}
+                aria-current={isActive ? "page" : undefined}
                 className={cn(
                   "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
                   isActive
@@ -113,7 +119,8 @@ export default function DashboardLayout({
       <main className="flex-1 flex flex-col">
         <header className="border-b bg-card px-6 py-4">
           <h1 className="text-2xl font-semibold">
-            {navigation.find((item) => item.href === pathname)?.name || "Dashboard"}
+            {navigation.find((item) => navItemIsActive(pathname, item.href))?.name ||
+              "Dashboard"}
           </h1>
         </header>
         <div className="flex-1 p-6 overflow-auto">

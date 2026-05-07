@@ -120,13 +120,14 @@ export default function NewReportPage() {
       {/* 头部 */}
       <div>
         <Button
+          type="button"
           variant="ghost"
           size="sm"
-          className="mb-2"
-          onClick={() => router.back()}
+          className="mb-2 -ml-2 text-muted-foreground hover:text-foreground"
+          onClick={() => router.push(`/projects/${projectId}`)}
         >
           <ArrowLeft className="h-4 w-4 mr-1" />
-          返回
+          返回项目详情
         </Button>
         <h2 className="text-3xl font-bold tracking-tight">创建审查任务</h2>
         <p className="text-muted-foreground">
@@ -210,7 +211,7 @@ export default function NewReportPage() {
                 </Button>
                 <Button
                   variant="outline"
-                  onClick={() => router.back()}
+                  onClick={() => router.push(`/projects/${projectId}`)}
                   disabled={isCreating}
                 >
                   取消

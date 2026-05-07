@@ -397,6 +397,41 @@ export const organizationsRelations = relations(
   })
 );
 
+export const organizationMembersRelations = relations(
+  organizationMembers,
+  ({ one }) => ({
+    organization: one(organizations, {
+      fields: [organizationMembers.orgId],
+      references: [organizations.id],
+    }),
+    user: one(users, {
+      fields: [organizationMembers.userId],
+      references: [users.id],
+    }),
+  })
+);
+
+export const departmentsRelations = relations(departments, ({ one }) => ({
+  organization: one(organizations, {
+    fields: [departments.orgId],
+    references: [organizations.id],
+  }),
+}));
+
+export const sessionsRelations = relations(sessions, ({ one }) => ({
+  user: one(users, {
+    fields: [sessions.userId],
+    references: [users.id],
+  }),
+}));
+
+export const accountsRelations = relations(accounts, ({ one }) => ({
+  user: one(users, {
+    fields: [accounts.userId],
+    references: [users.id],
+  }),
+}));
+
 export const tenderProjectsRelations = relations(tenderProjects, ({ one, many }) => ({
   organization: one(organizations, {
     fields: [tenderProjects.orgId],

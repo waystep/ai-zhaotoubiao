@@ -36,7 +36,7 @@ export default function RegisterPage() {
           password,
           redirect: false,
         });
-        router.push("/dashboard");
+        router.push("/projects");
         router.refresh();
       }
     } finally {

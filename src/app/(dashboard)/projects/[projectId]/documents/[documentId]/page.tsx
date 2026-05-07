@@ -234,7 +234,7 @@ export default function DocumentDetailPage() {
           title: "删除成功",
           description: "文档已删除",
         });
-        router.push(`/projects/${projectId}/documents`);
+        router.push(`/projects/${projectId}`);
       } else {
         const error = await response.json();
         toast({
@@ -324,8 +324,8 @@ export default function DocumentDetailPage() {
         <CardContent className="flex flex-col items-center justify-center py-12">
           <FileText className="h-12 w-12 text-muted-foreground mb-4" />
           <h3 className="text-lg font-semibold mb-2">文档不存在</h3>
-          <Button onClick={() => router.push(`/projects/${projectId}/documents`)}>
-            返回文档列表
+          <Button onClick={() => router.push(`/projects/${projectId}`)}>
+            返回项目详情
           </Button>
         </CardContent>
       </Card>
@@ -337,13 +337,14 @@ export default function DocumentDetailPage() {
       {/* 头部 */}
       <div>
         <Button
+          type="button"
           variant="ghost"
           size="sm"
-          className="mb-2"
-          onClick={() => router.push(`/projects/${projectId}/documents`)}
+          className="mb-2 -ml-2 text-muted-foreground hover:text-foreground"
+          onClick={() => router.push(`/projects/${projectId}`)}
         >
           <ArrowLeft className="h-4 w-4 mr-1" />
-          返回文档列表
+          返回项目详情
         </Button>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
