@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import { FileText, Loader2, AlertCircle, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -186,20 +187,27 @@ export default function DocumentDetailPage() {
             variant="ghost"
             size="sm"
             className="mb-2 -ml-2 text-muted-foreground hover:text-foreground"
-            onClick={() =>
-              document.project?.id
-                ? router.push(`/projects/${document.project.id}`)
-                : router.push("/documents")
-            }
+            onClick={() => router.push("/documents")}
           >
             <ArrowLeft className="h-4 w-4 mr-1" />
-            {document.project?.id ? "返回项目详情" : "返回文件列表"}
+            返回文件列表
           </Button>
           <h2 className="text-3xl font-bold tracking-tight">{document.name}</h2>
           <p className="text-muted-foreground">
             {getDocTypeLabel(document.docType)} ·
             上传于 {new Date(document.createdAt).toLocaleDateString("zh-CN")}
+            {document.project?.name ? ` · ${document.project.name}` : ""}
           </p>
+          {document.project?.id && (
+            <p className="text-sm mt-2">
+              <Link
+                href={`/projects/${document.project.id}/documents/${documentId}`}
+                className="text-primary hover:underline"
+              >
+                在项目文档管理中打开（解析、批量操作等）
+              </Link>
+            </p>
+          )}
         </div>
         <div className="flex gap-2">
           {document.parseStatus === "pending" && (

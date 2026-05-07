@@ -107,7 +107,7 @@ export default function DocumentsPage() {
           {documents.map((doc) => (
             <Link
               key={doc.id}
-              href={`/projects/${doc.projectId}/documents`}
+              href={`/documents/${doc.id}`}
             >
               <Card className="hover:border-primary transition-colors">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0">
