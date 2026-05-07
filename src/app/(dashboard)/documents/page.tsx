@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { FileText, Loader2, CheckCircle, XCircle, Clock, FolderOpen } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
@@ -10,6 +10,7 @@ interface Document {
   name: string;
   docType: string;
   parseStatus: string;
+  taskProgress?: number | null;
   projectId: string;
   project?: {
     id: string;
@@ -18,15 +19,16 @@ interface Document {
   createdAt: string;
 }
 
+function parseProgressPercent(p: number | null | undefined): number {
+  if (p == null || Number.isNaN(p)) return 0;
+  return Math.min(100, Math.max(0, Math.round(p)));
+}
+
 export default function DocumentsPage() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    fetchDocuments();
-  }, []);
-
-  async function fetchDocuments() {
+  const fetchDocuments = useCallback(async () => {
     try {
       const response = await fetch("/api/documents");
       if (response.ok) {
@@ -38,7 +40,18 @@ export default function DocumentsPage() {
     } finally {
       setIsLoading(false);
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    void fetchDocuments();
+  }, [fetchDocuments]);
+
+  const hasProcessing = documents.some((d) => d.parseStatus === "processing");
+  useEffect(() => {
+    if (!hasProcessing) return;
+    const id = window.setInterval(() => void fetchDocuments(), 4000);
+    return () => window.clearInterval(id);
+  }, [hasProcessing, fetchDocuments]);
 
   const getDocTypeLabel = (docType: string) => {
     switch (docType) {
@@ -126,9 +139,32 @@ export default function DocumentsPage() {
                       </CardDescription>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    {getParseStatusIcon(doc.parseStatus)}
-                    <span className="text-sm text-muted-foreground">
+                  <div className="flex flex-col items-end gap-2 sm:flex-row sm:items-center sm:gap-3">
+                    <div className="flex items-center gap-2">
+                      {getParseStatusIcon(doc.parseStatus)}
+                      <span className="text-sm text-muted-foreground whitespace-nowrap">
+                        {doc.parseStatus === "processing"
+                          ? `解析中 ${parseProgressPercent(doc.taskProgress)}%`
+                          : doc.parseStatus === "completed"
+                            ? "已解析"
+                            : doc.parseStatus === "failed"
+                              ? "解析失败"
+                              : "待解析"}
+                      </span>
+                    </div>
+                    {doc.parseStatus === "processing" && (
+                      <div className="w-28 shrink-0">
+                        <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                          <div
+                            className="h-full bg-primary transition-[width] duration-300"
+                            style={{
+                              width: `${parseProgressPercent(doc.taskProgress)}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                    <span className="text-sm text-muted-foreground whitespace-nowrap">
                       {new Date(doc.createdAt).toLocaleDateString("zh-CN")}
                     </span>
                   </div>

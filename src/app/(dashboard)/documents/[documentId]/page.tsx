@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { FileText, Loader2, AlertCircle, ArrowLeft } from "lucide-react";
@@ -35,8 +35,14 @@ interface Document {
   name: string;
   docType: string;
   parseStatus: string;
+  taskProgress?: number | null;
   createdAt: string;
   project?: { id: string; name?: string; projectNo?: string } | null;
+}
+
+function parseProgressPercent(p: number | null | undefined): number {
+  if (p == null || Number.isNaN(p)) return 0;
+  return Math.min(100, Math.max(0, Math.round(p)));
 }
 
 interface IssueLocation {
@@ -66,33 +72,7 @@ export default function DocumentDetailPage() {
   // 使用 ref 防止 StrictMode 下重复调用
   const hasFetchedRef = useRef(false);
 
-  useEffect(() => {
-    if (hasFetchedRef.current) return;
-    hasFetchedRef.current = true;
-    fetchDocument();
-  }, [documentId]);
-
-  async function fetchDocument() {
-    try {
-      // 获取文档信息
-      const docResponse = await fetch(`/api/documents/${documentId}`);
-      if (docResponse.ok) {
-        const data = await docResponse.json();
-        setDocument(data.document);
-
-        // 如果已解析，获取解析结果
-        if (data.document.parseStatus === "completed") {
-          fetchParsedResult();
-        }
-      }
-    } catch (error) {
-      console.error("获取文档失败:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
-  async function fetchParsedResult() {
+  const fetchParsedResult = useCallback(async () => {
     try {
       const response = await fetch(`/api/documents/${documentId}/blocks`);
       if (response.ok) {
@@ -102,7 +82,46 @@ export default function DocumentDetailPage() {
     } catch (error) {
       console.error("获取解析结果失败:", error);
     }
-  }
+  }, [documentId]);
+
+  const fetchDocument = useCallback(async () => {
+    try {
+      const docResponse = await fetch(`/api/documents/${documentId}`);
+      if (docResponse.ok) {
+        const data = await docResponse.json();
+        setDocument(data.document);
+
+        if (data.document.parseStatus === "completed") {
+          void fetchParsedResult();
+        } else {
+          setParsedResult(null);
+        }
+      }
+    } catch (error) {
+      console.error("获取文档失败:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [documentId, fetchParsedResult]);
+
+  useEffect(() => {
+    hasFetchedRef.current = false;
+    setIsLoading(true);
+    setDocument(null);
+    setParsedResult(null);
+  }, [documentId]);
+
+  useEffect(() => {
+    if (hasFetchedRef.current) return;
+    hasFetchedRef.current = true;
+    void fetchDocument();
+  }, [documentId, fetchDocument]);
+
+  useEffect(() => {
+    if (document?.parseStatus !== "processing") return;
+    const id = window.setInterval(() => void fetchDocument(), 4000);
+    return () => window.clearInterval(id);
+  }, [document?.parseStatus, fetchDocument]);
 
   async function handleParse() {
     setIsParsing(true);
@@ -240,11 +259,19 @@ export default function DocumentDetailPage() {
               {document.parseStatus === "completed"
                 ? "已解析"
                 : document.parseStatus === "processing"
-                ? "解析中"
-                : document.parseStatus === "failed"
-                ? "解析失败"
-                : "待解析"}
+                  ? `解析中 ${parseProgressPercent(document.taskProgress)}%`
+                  : document.parseStatus === "failed"
+                    ? "解析失败"
+                    : "待解析"}
             </div>
+            {document.parseStatus === "processing" && (
+              <div className="mt-3 h-2 w-full max-w-xs rounded-full bg-muted overflow-hidden">
+                <div
+                  className="h-full bg-primary transition-[width] duration-300"
+                  style={{ width: `${parseProgressPercent(document.taskProgress)}%` }}
+                />
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -308,9 +335,17 @@ export default function DocumentDetailPage() {
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <Loader2 className="h-12 w-12 animate-spin text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold mb-2">文档正在解析</h3>
-            <p className="text-muted-foreground text-center">
-              MinerU 正在分析文档内容，请稍候刷新查看结果
+            <h3 className="text-lg font-semibold mb-2">
+              文档正在解析 · {parseProgressPercent(document.taskProgress)}%
+            </h3>
+            <div className="mb-4 h-2 w-full max-w-md rounded-full bg-muted overflow-hidden">
+              <div
+                className="h-full bg-primary transition-[width] duration-300"
+                style={{ width: `${parseProgressPercent(document.taskProgress)}%` }}
+              />
+            </div>
+            <p className="text-muted-foreground text-center text-sm">
+              MinerU 正在分析文档内容，进度将自动刷新
             </p>
           </CardContent>
         </Card>

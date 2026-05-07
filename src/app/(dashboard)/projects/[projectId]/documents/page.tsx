@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { FileText, Loader2, CheckCircle, XCircle, Clock, Trash2, Play, ArrowLeft } from "lucide-react";
@@ -14,7 +14,13 @@ interface Document {
   name: string;
   docType: string;
   parseStatus: string;
+  taskProgress?: number | null;
   createdAt: string;
+}
+
+function parseProgressPercent(p: number | null | undefined): number {
+  if (p == null || Number.isNaN(p)) return 0;
+  return Math.min(100, Math.max(0, Math.round(p)));
 }
 
 const DOC_TYPE_FILTERS: { value: string; label: string }[] = [
@@ -73,11 +79,7 @@ export default function ProjectDocumentsPage() {
     el.indeterminate = someSelected && !allSelectableSelected;
   }, [someSelected, allSelectableSelected]);
 
-  useEffect(() => {
-    fetchDocuments();
-  }, [projectId]);
-
-  async function fetchDocuments() {
+  const fetchDocuments = useCallback(async () => {
     try {
       const response = await fetch(`/api/projects/${projectId}/documents`);
       if (response.ok) {
@@ -89,7 +91,18 @@ export default function ProjectDocumentsPage() {
     } finally {
       setIsLoading(false);
     }
-  }
+  }, [projectId]);
+
+  useEffect(() => {
+    void fetchDocuments();
+  }, [fetchDocuments]);
+
+  const hasProcessing = documents.some((d) => d.parseStatus === "processing");
+  useEffect(() => {
+    if (!hasProcessing) return;
+    const id = window.setInterval(() => void fetchDocuments(), 4000);
+    return () => window.clearInterval(id);
+  }, [hasProcessing, fetchDocuments]);
 
   function toggleTypeFilter(value: string) {
     setTypeFilterEnabled((prev) => ({ ...prev, [value]: !prev[value] }));
@@ -531,11 +544,27 @@ export default function ProjectDocumentsPage() {
                           </div>
                         </div>
                         <div className="flex items-center gap-2 sm:gap-4 shrink-0 flex-wrap justify-end">
-                          <div className="flex items-center gap-2">
-                            {getParseStatusIcon(doc.parseStatus)}
-                            <span className="text-sm text-muted-foreground whitespace-nowrap">
-                              {getParseStatusLabel(doc.parseStatus)}
-                            </span>
+                          <div className="flex flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-2">
+                            <div className="flex items-center gap-2">
+                              {getParseStatusIcon(doc.parseStatus)}
+                              <span className="text-sm text-muted-foreground whitespace-nowrap">
+                                {doc.parseStatus === "processing"
+                                  ? `${getParseStatusLabel(doc.parseStatus)} ${parseProgressPercent(doc.taskProgress)}%`
+                                  : getParseStatusLabel(doc.parseStatus)}
+                              </span>
+                            </div>
+                            {doc.parseStatus === "processing" && (
+                              <div className="w-24 shrink-0">
+                                <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                                  <div
+                                    className="h-full bg-primary transition-[width] duration-300"
+                                    style={{
+                                      width: `${parseProgressPercent(doc.taskProgress)}%`,
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            )}
                           </div>
                           {doc.parseStatus === "pending" && (
                             <Button
