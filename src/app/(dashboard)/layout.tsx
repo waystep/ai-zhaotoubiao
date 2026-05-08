@@ -5,12 +5,10 @@ import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import {
   ClipboardCheck,
-  FileText,
   FolderOpen,
   BarChart3,
   LogOut,
   Settings,
-  Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -130,7 +128,10 @@ export default function DashboardLayout({
           </div>
         </header>
         {/* scrollbar-gutter: 避免主滚动条显隐时挤占内容宽度，引发 ResizeObserver / PDF 整页重绘闪动 */}
-        <div className="min-h-0 flex-1 overflow-auto p-6 [scrollbar-gutter:stable]">
+        <div
+          id="dashboard-scroll"
+          className="min-h-0 flex-1 overflow-auto p-6 [scrollbar-gutter:stable]"
+        >
           {children}
         </div>
       </main>

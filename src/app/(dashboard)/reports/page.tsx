@@ -1,9 +1,16 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { ClipboardCheck, Loader2, AlertCircle, CheckCircle, Clock } from "lucide-react";
+import { useMemo, useState, useEffect } from "react";
+import { ClipboardCheck, Loader2, CheckCircle, Clock } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
+import { docTypeLabel, reviewStatusLabel } from "@/lib/ui/labels";
+import { formatDateCN } from "@/lib/ui/format";
+import { TruncatedText } from "@/components/ui/truncated-text";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { useDashboardScrollRestoration } from "@/hooks/use-dashboard-scroll-restoration";
 
 interface Report {
   id: string;
@@ -20,6 +27,9 @@ interface Report {
 export default function ReportsPage() {
   const [reports, setReports] = useState<Report[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [q, setQ] = useState("");
+  const [status, setStatus] = useState<string>("");
+  const { saveNow } = useDashboardScrollRestoration(`reports?q=${q}&status=${status}`);
 
   useEffect(() => {
     fetchReports();
@@ -50,32 +60,85 @@ export default function ReportsPage() {
     }
   };
 
-  const getStatusLabel = (status: string) => {
-    switch (status) {
-      case "completed":
-        return "已完成";
-      case "in_progress":
-        return "审查中";
-      default:
-        return "待审查";
-    }
-  };
+  const filtered = useMemo(() => {
+    const query = q.trim().toLowerCase();
+    return reports.filter((r) => {
+      if (status && r.status !== status) return false;
+      if (!query) return true;
+      const hay = `${r.document.name}`.toLowerCase();
+      return hay.includes(query);
+    });
+  }, [reports, q, status]);
 
-  const getDocTypeLabel = (docType: string) => {
-    switch (docType) {
-      case "tender_doc":
-        return "招标文件";
-      case "legal_doc":
-        return "法律文件";
-      case "bid_doc":
-        return "投标文件";
-      default:
-        return docType;
-    }
-  };
+  const chips: Array<{ key: string; label: string; onRemove: () => void }> = [];
+  if (status) {
+    chips.push({
+      key: "status",
+      label: `审查状态：${reviewStatusLabel(status)}`,
+      onRemove: () => setStatus(""),
+    });
+  }
+  if (q.trim()) {
+    chips.push({
+      key: "q",
+      label: `搜索：${q.trim()}`,
+      onRemove: () => setQ(""),
+    });
+  }
 
   return (
     <div className="space-y-6">
+      {/* 吸顶筛选条 */}
+      <div className="sticky top-0 z-10 -mx-6 border-b bg-background/85 px-6 py-4 backdrop-blur">
+        <div className="flex flex-col gap-3 md:flex-row md:items-end">
+          <div className="flex-1 min-w-0">
+            <label className="text-sm text-muted-foreground">搜索（文档名）</label>
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="输入关键词…" />
+          </div>
+          <div className="w-full md:w-[200px]">
+            <label className="text-sm text-muted-foreground">审查状态</label>
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              <option value="">全部</option>
+              <option value="in_progress">审查中</option>
+              <option value="completed">已完成</option>
+              <option value="pending">待审查</option>
+            </select>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setQ("");
+                setStatus("");
+              }}
+            >
+              清空
+            </Button>
+          </div>
+        </div>
+
+        {chips.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {chips.map((c) => (
+              <button
+                key={c.key}
+                type="button"
+                onClick={c.onRemove}
+                className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-1 text-xs hover:bg-muted"
+                title="点击移除筛选"
+              >
+                <span className="truncate">{c.label}</span>
+                <span className="text-muted-foreground">×</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-bold tracking-tight">审查报告</h2>
@@ -110,32 +173,43 @@ export default function ReportsPage() {
         </Card>
       ) : (
         <div className="grid gap-4">
-          {reports.map((report) => (
-            <Link key={report.id} href={`/reports/${report.id}`}>
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-muted-foreground">
+              共 {filtered.length} 条
+            </div>
+            {filtered.some((r) => r.status === "in_progress") && (
+              <Badge variant="outline" title="审查中报告建议稍后刷新查看结果">
+                有审查中
+              </Badge>
+            )}
+          </div>
+
+          {filtered.map((report) => (
+            <Link key={report.id} href={`/reports/${report.id}`} onClick={() => saveNow()}>
               <Card className="hover:border-primary transition-colors">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0">
                   <div className="flex items-center gap-4">
                     <ClipboardCheck className="h-5 w-5 text-primary" />
                     <div>
                       <CardTitle className="text-base">
-                        {report.document.name}
+                        <TruncatedText text={report.document.name} />
                       </CardTitle>
                       <CardDescription>
-                        {getDocTypeLabel(report.document.docType)} ·
-                        {new Date(report.createdAt).toLocaleDateString("zh-CN")}
+                        {docTypeLabel(report.document.docType)} ·
+                        {formatDateCN(report.createdAt)}
                       </CardDescription>
                     </div>
                   </div>
                   <div className="flex items-center gap-4">
                     {report.aiScore && (
                       <div className="text-lg font-semibold text-primary">
-                        {report.aiScore}分
+                        <span title={`${report.aiScore}分`}>{report.aiScore}分</span>
                       </div>
                     )}
                     <div className="flex items-center gap-2">
                       {getStatusIcon(report.status)}
                       <span className="text-sm text-muted-foreground">
-                        {getStatusLabel(report.status)}
+                        {reviewStatusLabel(report.status)}
                       </span>
                     </div>
                   </div>

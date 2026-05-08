@@ -8,6 +8,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { TruncatedText } from "@/components/ui/truncated-text";
+import { clampPercent, formatDateCN } from "@/lib/ui/format";
+import { docTypeLabel, parseStatusLabel } from "@/lib/ui/labels";
+import { useDashboardScrollRestoration } from "@/hooks/use-dashboard-scroll-restoration";
 
 interface Document {
   id: string;
@@ -16,11 +22,6 @@ interface Document {
   parseStatus: string;
   taskProgress?: number | null;
   createdAt: string;
-}
-
-function parseProgressPercent(p: number | null | undefined): number {
-  if (p == null || Number.isNaN(p)) return 0;
-  return Math.min(100, Math.max(0, Math.round(p)));
 }
 
 const DOC_TYPE_FILTERS: { value: string; label: string }[] = [
@@ -41,18 +42,29 @@ export default function ProjectDocumentsPage() {
   const { toast } = useToast();
   const [documents, setDocuments] = useState<Document[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [q, setQ] = useState("");
+  const [parseStatus, setParseStatus] = useState<string>("");
   const [deletingIds, setDeletingIds] = useState<string[]>([]);
   const [parsingIds, setParsingIds] = useState<string[]>([]);
   const [typeFilterEnabled, setTypeFilterEnabled] = useState<Record<string, boolean>>(initialTypeFilters);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [batchBusy, setBatchBusy] = useState(false);
   const selectAllRef = useRef<HTMLInputElement>(null);
+  const { saveNow } = useDashboardScrollRestoration(
+    `project-documents:${projectId}?q=${q}&status=${parseStatus}`
+  );
 
   const filteredDocuments = useMemo(() => {
     const enabledTypes = DOC_TYPE_FILTERS.filter((t) => typeFilterEnabled[t.value]).map((t) => t.value);
     if (enabledTypes.length === 0) return [];
-    return documents.filter((d) => enabledTypes.includes(d.docType));
-  }, [documents, typeFilterEnabled]);
+    const query = q.trim().toLowerCase();
+    return documents.filter((d) => {
+      if (!enabledTypes.includes(d.docType)) return false;
+      if (parseStatus && d.parseStatus !== parseStatus) return false;
+      if (!query) return true;
+      return d.name.toLowerCase().includes(query);
+    });
+  }, [documents, typeFilterEnabled, q, parseStatus]);
 
   const selectableDocs = useMemo(
     () => filteredDocuments.filter((d) => d.parseStatus !== "processing"),
@@ -335,21 +347,6 @@ export default function ProjectDocumentsPage() {
     fetchDocuments();
   }
 
-  const getDocTypeLabel = (docType: string) => {
-    switch (docType) {
-      case "tender_doc":
-        return "招标文件";
-      case "legal_doc":
-        return "法律文件";
-      case "bid_doc":
-        return "投标文件";
-      case "review_report":
-        return "审查报告";
-      default:
-        return docType;
-    }
-  };
-
   const getParseStatusIcon = (status: string) => {
     switch (status) {
       case "completed":
@@ -363,18 +360,29 @@ export default function ProjectDocumentsPage() {
     }
   };
 
-  const getParseStatusLabel = (status: string) => {
-    switch (status) {
-      case "completed":
-        return "已解析";
-      case "processing":
-        return "解析中";
-      case "failed":
-        return "解析失败";
-      default:
-        return "待解析";
-    }
-  };
+  const chips: Array<{ key: string; label: string; onRemove: () => void }> = [];
+  const enabledTypes = DOC_TYPE_FILTERS.filter((t) => typeFilterEnabled[t.value]).map((t) => t.label);
+  if (enabledTypes.length > 0 && enabledTypes.length < DOC_TYPE_FILTERS.length) {
+    chips.push({
+      key: "types",
+      label: `类型：${enabledTypes.join("、")}`,
+      onRemove: () => setTypeFilterEnabled(initialTypeFilters()),
+    });
+  }
+  if (parseStatus) {
+    chips.push({
+      key: "status",
+      label: `解析状态：${parseStatusLabel(parseStatus, 0)}`,
+      onRemove: () => setParseStatus(""),
+    });
+  }
+  if (q.trim()) {
+    chips.push({
+      key: "q",
+      label: `搜索：${q.trim()}`,
+      onRemove: () => setQ(""),
+    });
+  }
 
   const batchParseableCount = [...selectedIds].filter((id) => {
     const d = documents.find((x) => x.id === id);
@@ -388,6 +396,64 @@ export default function ProjectDocumentsPage() {
 
   return (
     <div className="space-y-6">
+      {/* 吸顶筛选条 */}
+      <div className="sticky top-0 z-10 -mx-6 border-b bg-background/85 px-6 py-4 backdrop-blur">
+        <div className="flex flex-col gap-3 md:flex-row md:items-end">
+          <div className="flex-1 min-w-0">
+            <label className="text-sm text-muted-foreground">搜索（文档名）</label>
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="输入关键词…" />
+          </div>
+          <div className="w-full md:w-[200px]">
+            <label className="text-sm text-muted-foreground">解析状态</label>
+            <select
+              value={parseStatus}
+              onChange={(e) => setParseStatus(e.target.value)}
+              className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              <option value="">全部</option>
+              <option value="processing">解析中</option>
+              <option value="completed">已解析</option>
+              <option value="failed">解析失败</option>
+              <option value="pending">待解析</option>
+            </select>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setQ("");
+                setParseStatus("");
+                setTypeFilterEnabled(initialTypeFilters());
+              }}
+            >
+              清空
+            </Button>
+          </div>
+        </div>
+
+        {chips.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {chips.map((c) => (
+              <button
+                key={c.key}
+                type="button"
+                onClick={c.onRemove}
+                className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-1 text-xs hover:bg-muted"
+                title="点击移除筛选"
+              >
+                <span className="truncate">{c.label}</span>
+                <span className="text-muted-foreground">×</span>
+              </button>
+            ))}
+            {hasProcessing && (
+              <Badge variant="outline" title="解析中会自动刷新">
+                自动刷新中
+              </Badge>
+            )}
+          </div>
+        )}
+      </div>
+
       <div className="flex items-center justify-between">
         <div>
           <Button
@@ -536,10 +602,12 @@ export default function ProjectDocumentsPage() {
                           />
                           <FileText className="h-5 w-5 text-primary shrink-0" />
                           <div className="min-w-0">
-                            <CardTitle className="text-base truncate">{doc.name}</CardTitle>
+                            <CardTitle className="text-base">
+                              <TruncatedText text={doc.name} />
+                            </CardTitle>
                             <CardDescription>
-                              {getDocTypeLabel(doc.docType)} ·
-                              {new Date(doc.createdAt).toLocaleDateString("zh-CN")}
+                              {docTypeLabel(doc.docType)} ·
+                              {formatDateCN(doc.createdAt)}
                             </CardDescription>
                           </div>
                         </div>
@@ -548,9 +616,7 @@ export default function ProjectDocumentsPage() {
                             <div className="flex items-center gap-2">
                               {getParseStatusIcon(doc.parseStatus)}
                               <span className="text-sm text-muted-foreground whitespace-nowrap">
-                                {doc.parseStatus === "processing"
-                                  ? `${getParseStatusLabel(doc.parseStatus)} ${parseProgressPercent(doc.taskProgress)}%`
-                                  : getParseStatusLabel(doc.parseStatus)}
+                                {parseStatusLabel(doc.parseStatus, clampPercent(doc.taskProgress))}
                               </span>
                             </div>
                             {doc.parseStatus === "processing" && (
@@ -559,7 +625,7 @@ export default function ProjectDocumentsPage() {
                                   <div
                                     className="h-full bg-primary transition-[width] duration-300"
                                     style={{
-                                      width: `${parseProgressPercent(doc.taskProgress)}%`,
+                                      width: `${clampPercent(doc.taskProgress)}%`,
                                     }}
                                   />
                                 </div>
@@ -598,7 +664,7 @@ export default function ProjectDocumentsPage() {
                             </Button>
                           )}
                           {doc.parseStatus === "completed" && (
-                            <Link href={`/projects/${projectId}/documents/${doc.id}`}>
+                            <Link href={`/projects/${projectId}/documents/${doc.id}`} onClick={() => saveNow()}>
                               <Button size="sm" variant="outline" disabled={batchBusy}>
                                 查看详情
                               </Button>
