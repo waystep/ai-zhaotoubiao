@@ -428,18 +428,17 @@ export function PdfViewer({
               className="pointer-events-none h-0 w-full min-w-0 overflow-hidden"
               aria-hidden
             />
-            {/* Loading overlay (shown only before PDF is ready) */}
-            {!pdfReady && (
-              <div className="flex h-[480px] items-center justify-center rounded-lg bg-muted/30">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-              </div>
-            )}
-
             <div
               ref={scrollRef}
-              className={`overflow-y-auto rounded-lg bg-muted/20 [scrollbar-gutter:stable] ${pdfReady ? "" : "hidden"}`}
+              className="relative overflow-y-auto rounded-lg bg-muted/20 [scrollbar-gutter:stable]"
               style={{ maxHeight: "80vh" }}
             >
+              {/* Loading overlay（覆盖，但不隐藏 Document，否则永远不会触发 onLoadSuccess） */}
+              {!pdfReady && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-muted/30">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              )}
               <Document
                 key={documentId}
                 file={fileUrl}
