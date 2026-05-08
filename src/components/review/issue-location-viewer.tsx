@@ -35,7 +35,6 @@ interface IssueLocationViewerProps {
   currentPage?: number;
   onIssueClick?: (issue: ReviewIssue) => void;
   onIssueHover?: (issue: ReviewIssue | null) => void;
-  selectedIssueId?: string;
   hoveredIssueId?: string;
   issueNoById?: Record<string, number>;
 }
@@ -59,12 +58,11 @@ export function IssueLocationViewer({
   currentPage,
   onIssueClick,
   onIssueHover,
-  selectedIssueId,
   hoveredIssueId,
   issueNoById,
 }: IssueLocationViewerProps) {
   const [expandedIssues, setExpandedIssues] = useState<Set<string>>(new Set());
-  const [scope, setScope] = useState<"follow" | "all">("follow");
+  const [scope, setScope] = useState<"follow" | "all">("all");
   const [severity, setSeverity] = useState<"all" | ReviewIssue["severity"]>("all");
   const [resolved, setResolved] = useState<"all" | "resolved" | "unresolved">("all");
   const itemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -106,17 +104,7 @@ export function IssueLocationViewer({
     return filteredIssues.some((i) => i.id === hoveredIssueId);
   }, [hoveredIssueId, filteredIssues]);
 
-  // soft-expand hovered item when it is in the current filtered list
-  useEffect(() => {
-    if (!hoveredIssueId) return;
-    if (!hoveredVisible) return;
-    setExpandedIssues((prev) => {
-      if (prev.has(hoveredIssueId)) return prev;
-      const next = new Set(prev);
-      next.add(hoveredIssueId);
-      return next;
-    });
-  }, [hoveredIssueId, hoveredVisible]);
+  // hover 仅用于联动/高亮，不自动展开（避免打断阅读）
 
   function revealIssueInList(issueId: string) {
     // if current filters exclude it, switch to all first
@@ -256,9 +244,7 @@ export function IssueLocationViewer({
                     itemRefs.current.set(issue.id, el);
                   }}
                   className={`rounded-lg border cursor-pointer transition-all ${
-                    selectedIssueId === issue.id
-                      ? "border-primary ring-2 ring-primary/20"
-                      : hoveredIssueId === issue.id
+                   hoveredIssueId === issue.id
                         ? "border-primary/60 ring-2 ring-primary/10"
                         : "border-transparent hover:border-gray-200"
                   } ${severityColors[issue.severity]}`}

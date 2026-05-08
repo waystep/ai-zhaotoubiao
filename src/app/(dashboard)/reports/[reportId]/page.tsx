@@ -104,7 +104,6 @@ export default function ReportDetailPage() {
   const [report, setReport] = useState<Report | null>(null);
   const [blocks, setBlocks] = useState<DocumentBlock[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
-  const [selectedIssueId, setSelectedIssueId] = useState<string | undefined>();
   // 一次性触发 PdfViewer 定位滚动：滚动完成后会自动清理，避免“滚动回弹”
   const [focusedIssueOnce, setFocusedIssueOnce] = useState<Issue["location"] | null>(null);
   const [hoveredIssue, setHoveredIssue] = useState<Issue["location"] | null>(null);
@@ -190,7 +189,6 @@ export default function ReportDetailPage() {
   }
 
   function selectIssue(issue: Issue) {
-    setSelectedIssueId(issue.id);
     setCurrentPage(issue.location.pageNumber);
     setFocusedIssueOnce(issue.location);
   }
@@ -419,7 +417,6 @@ export default function ReportDetailPage() {
                 setHoveredIssue(issue?.location ?? null);
                 setHoveredIssueId(issue?.id ?? null);
               }}
-              selectedIssueId={selectedIssueId}
               hoveredIssueId={hoveredIssueId ?? undefined}
               issueNoById={issueNoById}
             />
