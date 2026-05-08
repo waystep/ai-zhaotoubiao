@@ -108,7 +108,8 @@ export default function ReportDetailPage() {
   const [selectedIssueId, setSelectedIssueId] = useState<string | undefined>();
   // 一次性触发 PdfViewer 定位滚动：滚动完成后会自动清理，避免“滚动回弹”
   const [focusedIssueOnce, setFocusedIssueOnce] = useState<Issue["location"] | null>(null);
-  const [activeTab, setActiveTab] = useState("issues");
+  const [hoveredIssue, setHoveredIssue] = useState<Issue["location"] | null>(null);
+  const [activeTab, setActiveTab] = useState("location");
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
 
@@ -382,107 +383,11 @@ export default function ReportDetailPage() {
       {report.status === "completed" && report.issues && report.issues.length > 0 && (
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <TabsList>
-            <TabsTrigger value="issues" className="flex items-center gap-2">
-              <AlertCircle className="h-4 w-4" />
-              问题清单
-            </TabsTrigger>
-            <TabsTrigger value="preview" className="flex items-center gap-2">
-              <Eye className="h-4 w-4" />
-              文档预览
-            </TabsTrigger>
             <TabsTrigger value="location" className="flex items-center gap-2">
               <MapPin className="h-4 w-4" />
               问题定位
             </TabsTrigger>
           </TabsList>
-
-          <TabsContent value="issues">
-            <Card>
-              <CardHeader>
-                <CardTitle>问题清单</CardTitle>
-                <CardDescription>
-                  审查发现的问题详情，包含具体位置定位
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {report.issues.map((issue, index) => (
-                    <div
-                      key={issue.id}
-                      className={`p-4 rounded-lg border transition-all ${
-                        selectedIssueId === issue.id
-                          ? "ring-2 ring-primary"
-                          : ""
-                      } ${severityColors[issue.severity as keyof typeof severityColors]}`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex flex-wrap items-center gap-2 mb-2">
-                            <span className="font-semibold">{index + 1}. {issue.title}</span>
-                            <Badge variant="outline" className={severityColors[issue.severity as keyof typeof severityColors]}>
-                              {severityLabels[issue.severity as keyof typeof severityLabels]}
-                            </Badge>
-                            <span className="text-xs text-muted-foreground">
-                              第 {issue.location.pageNumber} 页
-                            </span>
-                          </div>
-                          <p className="text-sm mb-2">{issue.description}</p>
-                          {issue.location.textSnippet && (
-                            <div className="bg-white/50 p-2 rounded text-sm font-mono mb-2">
-                              「{issue.location.textSnippet}」
-                            </div>
-                          )}
-                          {issue.suggestion && (
-                            <p className="text-sm text-muted-foreground">
-                              建议: {issue.suggestion}
-                            </p>
-                          )}
-                        </div>
-                        <div className="flex flex-col items-end gap-2 shrink-0">
-                          <Badge variant={issue.isResolved ? "default" : "secondary"}>
-                            {issue.isResolved ? "已解决" : "待处理"}
-                          </Badge>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="text-xs gap-1"
-                            onClick={() => handleLocateClick(issue)}
-                          >
-                            <Eye className="h-3 w-3" />
-                            定位
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="preview">
-            <Card className="shadow-sm bg-muted/20">
-              <CardHeader>
-                <CardTitle>文档内容预览</CardTitle>
-                <CardDescription>
-                  {selectedIssueId
-                    ? `已定位到第 ${currentPage} 页 · 橙色框为当前问题，黄色框为其他问题`
-                    : "查看文档解析内容，高亮区域为问题位置"}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <PdfViewer
-                  documentId={report.document.id}
-                  blocks={blocks}
-                  highlightedIssues={report.issues.map((i) => i.location)}
-                  focusedIssue={focusedIssueOnce}
-                  onFocusedIssueConsumed={() => setFocusedIssueOnce(null)}
-                  currentPage={currentPage}
-                  onPageChange={handlePageChange}
-                />
-              </CardContent>
-            </Card>
-          </TabsContent>
 
           <TabsContent value="location">
             <div className="grid gap-6 lg:grid-cols-2">
@@ -490,6 +395,7 @@ export default function ReportDetailPage() {
                 issues={report.issues}
                 currentPage={currentPage}
                 onIssueClick={handleLocateClick}
+                onIssueHover={(issue) => setHoveredIssue(issue?.location ?? null)}
                 selectedIssueId={selectedIssueId}
               />
               <Card className="shadow-sm bg-muted/20">
@@ -507,6 +413,7 @@ export default function ReportDetailPage() {
                       // 在“问题定位”中保留全量高亮，避免仅当前页导致定位/对比信息缺失
                       highlightedIssues={report.issues.map((i) => i.location)}
                       focusedIssue={focusedIssueOnce}
+                      hoveredIssue={hoveredIssue}
                       onFocusedIssueConsumed={() => setFocusedIssueOnce(null)}
                       currentPage={currentPage}
                       onPageChange={handlePageChange}

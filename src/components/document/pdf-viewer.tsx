@@ -44,6 +44,8 @@ interface PdfViewerProps {
   highlightedIssues?: IssueLocation[];
   /** 当前被选中/聚焦的问题，在 PDF 上用醒目样式区分 */
   focusedIssue?: IssueLocation | null;
+  /** 仅用于 hover 联动：不触发滚动，仅改变高亮样式 */
+  hoveredIssue?: IssueLocation | null;
   /**
    * 当本次 focusedIssue 触发的“定位滚动”执行后回调（用于一次性定位：定位完成即清理 focusedIssue，避免滚动回弹）
    */
@@ -92,6 +94,7 @@ export function PdfViewer({
   blocks = [],
   highlightedIssues = [],
   focusedIssue,
+  hoveredIssue,
   onFocusedIssueConsumed,
   currentPage,
   onPageChange,
@@ -419,6 +422,14 @@ export function PdfViewer({
     );
   }
 
+  function isHovered(issue: IssueLocation): boolean {
+    if (!hoveredIssue) return false;
+    return (
+      hoveredIssue.pageNumber === issue.pageNumber &&
+      hoveredIssue.blockIndex === issue.blockIndex
+    );
+  }
+
   function renderPageOverlay(pageNum: number) {
     if (!overlaySize) return null;
 
@@ -463,12 +474,15 @@ export function PdfViewer({
             overlaySize.h
           );
           const focused = isFocused(issue);
+          const hovered = !focused && isHovered(issue);
           return (
             <div
               key={`${pageNum}-${issue.blockIndex}-${idx}`}
               className={
                 focused
                   ? "pointer-events-none absolute rounded-sm border-2 border-orange-500 bg-orange-400/30 shadow-[0_0_0_2px_rgba(249,115,22,0.4)]"
+                  : hovered
+                    ? "pointer-events-none absolute rounded-sm border-2 border-primary bg-primary/15 shadow-[0_0_0_2px_rgba(59,130,246,0.25)]"
                   : "pointer-events-none absolute rounded-sm border-2 border-yellow-500 bg-yellow-300/20"
               }
               style={{ left, top, width, height }}

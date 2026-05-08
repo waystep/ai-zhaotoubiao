@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ChevronDown, ChevronUp, MapPin, Eye } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +34,7 @@ interface IssueLocationViewerProps {
   issues: ReviewIssue[];
   currentPage?: number;
   onIssueClick?: (issue: ReviewIssue) => void;
+  onIssueHover?: (issue: ReviewIssue | null) => void;
   selectedIssueId?: string;
 }
 
@@ -55,9 +56,13 @@ export function IssueLocationViewer({
   issues,
   currentPage,
   onIssueClick,
+  onIssueHover,
   selectedIssueId,
 }: IssueLocationViewerProps) {
   const [expandedIssues, setExpandedIssues] = useState<Set<string>>(new Set());
+  const [scope, setScope] = useState<"follow" | "all">("follow");
+  const [severity, setSeverity] = useState<"all" | ReviewIssue["severity"]>("all");
+  const [resolved, setResolved] = useState<"all" | "resolved" | "unresolved">("all");
 
   function toggleIssue(issueId: string) {
     setExpandedIssues((prev) => {
@@ -71,18 +76,30 @@ export function IssueLocationViewer({
     });
   }
 
-  // 过滤当前页的问题
-  const currentPageIssues = currentPage
-    ? issues.filter((i) => i.location.pageNumber === currentPage)
-    : issues;
+  const filteredIssues = useMemo(() => {
+    let list = issues;
+    if (scope === "follow" && currentPage) {
+      list = list.filter((i) => i.location.pageNumber === currentPage);
+    }
+    if (severity !== "all") {
+      list = list.filter((i) => i.severity === severity);
+    }
+    if (resolved !== "all") {
+      const wantResolved = resolved === "resolved";
+      list = list.filter((i) => i.isResolved === wantResolved);
+    }
+    return list;
+  }, [issues, scope, currentPage, severity, resolved]);
 
   // 按严重程度分组
-  const groupedIssues = {
-    critical: currentPageIssues.filter((i) => i.severity === "critical"),
-    major: currentPageIssues.filter((i) => i.severity === "major"),
-    minor: currentPageIssues.filter((i) => i.severity === "minor"),
-    suggestion: currentPageIssues.filter((i) => i.severity === "suggestion"),
-  };
+  const groupedIssues = useMemo(() => {
+    return {
+      critical: filteredIssues.filter((i) => i.severity === "critical"),
+      major: filteredIssues.filter((i) => i.severity === "major"),
+      minor: filteredIssues.filter((i) => i.severity === "minor"),
+      suggestion: filteredIssues.filter((i) => i.severity === "suggestion"),
+    };
+  }, [filteredIssues]);
 
   return (
     <div className="space-y-4">
@@ -117,24 +134,56 @@ export function IssueLocationViewer({
       {/* 问题列表 */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
-            <MapPin className="h-5 w-5" />
-            问题定位
-            {currentPage && (
-              <Badge variant="outline">第 {currentPage} 页</Badge>
-            )}
+          <CardTitle className="text-lg flex items-center justify-between gap-3">
+            <span className="flex items-center gap-2">
+              <MapPin className="h-5 w-5" />
+              问题定位
+              {scope === "follow" && currentPage && <Badge variant="outline">第 {currentPage} 页</Badge>}
+              {scope === "all" && <Badge variant="secondary">全部问题</Badge>}
+            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={scope}
+                onChange={(e) => setScope(e.target.value as "follow" | "all")}
+                className="h-8 rounded-md border border-input bg-background px-2 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                title="范围"
+              >
+                <option value="follow">当前页（跟随）</option>
+                <option value="all">全部问题</option>
+              </select>
+              <select
+                value={severity}
+                onChange={(e) => setSeverity(e.target.value as typeof severity)}
+                className="h-8 rounded-md border border-input bg-background px-2 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                title="严重程度"
+              >
+                <option value="all">全部严重程度</option>
+                <option value="critical">严重</option>
+                <option value="major">重要</option>
+                <option value="minor">轻微</option>
+                <option value="suggestion">建议</option>
+              </select>
+              <select
+                value={resolved}
+                onChange={(e) => setResolved(e.target.value as typeof resolved)}
+                className="h-8 rounded-md border border-input bg-background px-2 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                title="处理状态"
+              >
+                <option value="all">全部状态</option>
+                <option value="unresolved">待处理</option>
+                <option value="resolved">已解决</option>
+              </select>
+            </div>
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {currentPageIssues.length === 0 ? (
+          {filteredIssues.length === 0 ? (
             <p className="text-muted-foreground text-center py-4">
-              {currentPage
-                ? "当前页未发现问题"
-                : "暂无审查问题"}
+              {scope === "follow" && currentPage ? "当前页未发现问题" : "暂无数据"}
             </p>
           ) : (
             <div className="space-y-3">
-              {currentPageIssues.map((issue) => (
+              {filteredIssues.map((issue) => (
                 <div
                   key={issue.id}
                   className={`rounded-lg border cursor-pointer transition-all ${
@@ -143,6 +192,8 @@ export function IssueLocationViewer({
                       : "border-transparent hover:border-gray-200"
                   } ${severityColors[issue.severity]}`}
                   onClick={() => onIssueClick?.(issue)}
+                  onMouseEnter={() => onIssueHover?.(issue)}
+                  onMouseLeave={() => onIssueHover?.(null)}
                 >
                   <div
                     className="p-3"
