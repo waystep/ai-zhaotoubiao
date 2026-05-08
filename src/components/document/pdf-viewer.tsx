@@ -248,6 +248,27 @@ export function PdfViewer({
     []
   );
 
+  // ─── Per-page highlight overlay ───────────────────────────────────────────
+  const highlightsByPage = useMemo(() => {
+    const map = new Map<number, IssueLocation[]>();
+    for (const issue of highlightedIssues) {
+      const list = map.get(issue.pageNumber) ?? [];
+      list.push(issue);
+      map.set(issue.pageNumber, list);
+    }
+    return map;
+  }, [highlightedIssues]);
+
+  const blocksByPage = useMemo(() => {
+    const map = new Map<number, DocumentBlock[]>();
+    for (const b of blocks) {
+      const list = map.get(b.pageNumber) ?? [];
+      list.push(b);
+      map.set(b.pageNumber, list);
+    }
+    return map;
+  }, [blocks]);
+
   // ─── Navigation helpers ───────────────────────────────────────────────────
   const scrollToPage = useCallback((page: number) => {
     const el = pageEls.current.get(page);
@@ -261,6 +282,70 @@ export function PdfViewer({
     }, 700);
     el.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
+
+  const scrollToIssue = useCallback(
+    (issue: IssueLocation) => {
+      if (!overlaySize || !pageBaseDims) {
+        scrollToPage(issue.pageNumber);
+        return;
+      }
+
+      const container = scrollRef.current;
+      const pageEl = pageEls.current.get(issue.pageNumber);
+      if (!container || !pageEl) {
+        scrollToPage(issue.pageNumber);
+        return;
+      }
+
+      const pageBlocks = blocksByPage.get(issue.pageNumber) ?? [];
+      const box = boxForIssue(issue, pageBlocks);
+      if (!box) {
+        scrollToPage(issue.pageNumber);
+        return;
+      }
+
+      const boxesForRef = [
+        ...pageBlocks.map((b) => b.bbox),
+        ...highlightedIssues
+          .filter((i) => i.pageNumber === issue.pageNumber)
+          .flatMap((i) => {
+            const b = boxForIssue(i, pageBlocks);
+            return b ? [b] : [];
+          }),
+        box,
+      ];
+
+      const { refW, refH } = inferRefDimensions(boxesForRef, pageBaseDims.w, pageBaseDims.h);
+      const mapped = mapBoxToOverlay(box, refW, refH, overlaySize.w, overlaySize.h);
+
+      // 目标：将 bbox 垂直居中到容器可视区域偏上（更符合阅读）
+      const containerRect = container.getBoundingClientRect();
+      const pageRect = pageEl.getBoundingClientRect();
+      const currentScrollTop = container.scrollTop;
+
+      // bbox 中心点相对 page wrapper 的 y 像素
+      const targetYInPage = mapped.top + mapped.height / 2;
+      // bbox 中心点相对容器顶部的距离（加上当前滚动）
+      const targetYInContainer =
+        currentScrollTop + (pageRect.top - containerRect.top) + targetYInPage;
+
+      const desired =
+        targetYInContainer - Math.max(24, container.clientHeight * 0.25);
+
+      // 标记 programmatic scroll，屏蔽 IO 期间的 onPageChange，防止父组件回写 currentPage 造成振荡
+      progScrollTargetRef.current = issue.pageNumber;
+      if (progScrollTimerRef.current) clearTimeout(progScrollTimerRef.current);
+      progScrollTimerRef.current = setTimeout(() => {
+        progScrollTargetRef.current = 0;
+        progScrollTimerRef.current = null;
+      }, 700);
+
+      container.scrollTo({ top: Math.max(0, desired), behavior: "smooth" });
+    },
+    // scrollToPage 是稳定的；blocksByPage / highlightedIssues / overlaySize 等随状态变化
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [blocksByPage, highlightedIssues, overlaySize, pageBaseDims, scrollToPage]
+  );
 
   const goPrev = () => {
     const next = Math.max(1, activePage - 1);
@@ -297,26 +382,20 @@ export function PdfViewer({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage, numPages, scrollToPage]);
 
-  // ─── Per-page highlight overlay ───────────────────────────────────────────
-  const highlightsByPage = useMemo(() => {
-    const map = new Map<number, IssueLocation[]>();
-    for (const issue of highlightedIssues) {
-      const list = map.get(issue.pageNumber) ?? [];
-      list.push(issue);
-      map.set(issue.pageNumber, list);
-    }
-    return map;
-  }, [highlightedIssues]);
+  // ─── focusedIssue → scroll to exact bbox position ─────────────────────────
+  useEffect(() => {
+    if (!focusedIssue) return;
+    if (!pdfReady || numPages <= 0) return;
 
-  const blocksByPage = useMemo(() => {
-    const map = new Map<number, DocumentBlock[]>();
-    for (const b of blocks) {
-      const list = map.get(b.pageNumber) ?? [];
-      list.push(b);
-      map.set(b.pageNumber, list);
-    }
-    return map;
-  }, [blocks]);
+    const target = Math.min(Math.max(1, focusedIssue.pageNumber), numPages);
+    if (!pageEls.current.has(target)) return;
+
+    // 等待一帧，让 Tab 切换/布局稳定（避免第一次测量拿到 0 高度）
+    const raf = requestAnimationFrame(() => {
+      scrollToIssue({ ...focusedIssue, pageNumber: target });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [focusedIssue, pdfReady, numPages, scrollToIssue]);
 
   function isFocused(issue: IssueLocation): boolean {
     if (!focusedIssue) return false;

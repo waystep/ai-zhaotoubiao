@@ -187,9 +187,18 @@ export default function ReportDetailPage() {
     }
   }
 
-  function handleIssueClick(issue: Issue) {
+  function selectIssue(issue: Issue) {
     setSelectedIssueId(issue.id);
     setCurrentPage(issue.location.pageNumber);
+  }
+
+  function handleLocateClick(issue: Issue) {
+    selectIssue(issue);
+    setActiveTab("location");
+  }
+
+  function handlePreviewClick(issue: Issue) {
+    selectIssue(issue);
     setActiveTab("preview");
   }
 
@@ -439,7 +448,7 @@ export default function ReportDetailPage() {
                             size="sm"
                             variant="outline"
                             className="text-xs gap-1"
-                            onClick={() => handleIssueClick(issue)}
+                            onClick={() => handleLocateClick(issue)}
                           >
                             <Eye className="h-3 w-3" />
                             定位预览
@@ -485,7 +494,7 @@ export default function ReportDetailPage() {
               <IssueLocationViewer
                 issues={report.issues}
                 currentPage={currentPage}
-                onIssueClick={handleIssueClick}
+                onIssueClick={handleLocateClick}
                 selectedIssueId={selectedIssueId}
               />
               <Card>
@@ -500,9 +509,13 @@ export default function ReportDetailPage() {
                     <PdfViewer
                       documentId={report.document.id}
                       blocks={blocks}
-                      highlightedIssues={report.issues
-                        .filter((i) => i.location.pageNumber === currentPage)
-                        .map((i) => i.location)}
+                      // 在“问题定位”中保留全量高亮，避免仅当前页导致定位/对比信息缺失
+                      highlightedIssues={report.issues.map((i) => i.location)}
+                      focusedIssue={
+                        selectedIssueId
+                          ? report.issues.find((i) => i.id === selectedIssueId)?.location
+                          : undefined
+                      }
                       currentPage={currentPage}
                       onPageChange={handlePageChange}
                     />
