@@ -33,6 +33,18 @@ export async function POST(request: Request, context: RouteContext) {
       return NextResponse.json({ error: "报告已生成" }, { status: 400 });
     }
 
+    // 如果大模型 Provider 需要 API Key，但未配置，则直接失败（避免返回 200 假成功 + 后续 result 为空崩溃）
+    if (!process.env.ALIBABA_CODING_PLAN_API_KEY) {
+      return NextResponse.json(
+        {
+          error: "未配置大模型 API Key",
+          details:
+            "缺少环境变量 ALIBABA_CODING_PLAN_API_KEY，无法调用 alibaba-coding-plan-cn 模型。请在 .env.local 或部署环境中配置后重试。",
+        },
+        { status: 500 }
+      );
+    }
+
     // 更新状态
     await db.update(reviewReports)
       .set({ status: "in_progress", updatedAt: new Date() })
@@ -81,8 +93,8 @@ export async function POST(request: Request, context: RouteContext) {
           }
 
           // 获取最终结果
-          const result = await agentStream.result;
-          const finalText = result.text || "";
+          const result = await agentStream.result.catch(() => null);
+          const finalText = result?.text || "";
 
           // 解析JSON报告（从输出中提取）
           const jsonMatch = finalText.match(/\{[\s\S]*"recommendation"[\s\S]*\}/);
