@@ -353,9 +353,9 @@ export default function DocumentDetailPage() {
             <div>
               <h2 className="text-3xl font-bold tracking-tight">{document.originalName}</h2>
               <p className="text-muted-foreground">
-                {getDocTypeLabel(document.docType)} ·
-                {(document.fileSize / 1024 / 1024).toFixed(2)} MB ·
-                {new Date(document.createdAt).toLocaleDateString("zh-CN")}
+                {getDocTypeLabel(document.docType)}{` · `}
+                {(document.fileSize / 1024 / 1024).toFixed(2)} MB{` · `}
+                {new Date(document.parsedAt).toLocaleDateString("zh-CN")}
               </p>
             </div>
           </div>
