@@ -116,9 +116,14 @@ export default async function ProjectDetailPage({ params }: PageProps) {
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {project.budget ? `¥${project.budget}` : "未设置"}
-            </div>
+            {(() => {
+              const label = project.budget ? `¥${project.budget}` : "未设置";
+              return (
+                <div className="text-2xl font-bold truncate" title={label}>
+                  {label}
+                </div>
+              );
+            })()}
           </CardContent>
         </Card>
 

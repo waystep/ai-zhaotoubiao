@@ -25,8 +25,8 @@ import { Button } from "@/components/ui/button";
 
 const navigation = [
   { name: "项目列表", href: "/projects", icon: FolderOpen },
-  { name: "文件管理", href: "/documents", icon: FileText },
-  { name: "审查报告", href: "/reports", icon: ClipboardCheck },
+  // { name: "文件管理", href: "/documents", icon: FileText },
+  // { name: "审查报告", href: "/reports", icon: ClipboardCheck },
   { name: "统计分析", href: "/analytics", icon: BarChart3 },
   { name: "设置", href: "/settings", icon: Settings },
 ];
@@ -43,6 +43,8 @@ export default function DashboardLayout({
 }) {
   const pathname = usePathname();
   const { data: session } = useSession();
+  const currentNav =
+    navigation.find((item) => navItemIsActive(pathname, item.href)) ?? null;
 
   return (
     <div className="min-h-screen flex">
@@ -118,10 +120,14 @@ export default function DashboardLayout({
 
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="border-b bg-card px-6 py-4">
-          <h1 className="text-2xl font-semibold">
-            {navigation.find((item) => navItemIsActive(pathname, item.href))?.name ||
-              "Dashboard"}
-          </h1>
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <div className="text-xs text-muted-foreground">当前位置</div>
+              <div className="truncate text-sm font-medium">
+                {currentNav?.name || "工作台"}
+              </div>
+            </div>
+          </div>
         </header>
         {/* scrollbar-gutter: 避免主滚动条显隐时挤占内容宽度，引发 ResizeObserver / PDF 整页重绘闪动 */}
         <div className="min-h-0 flex-1 overflow-auto p-6 [scrollbar-gutter:stable]">
