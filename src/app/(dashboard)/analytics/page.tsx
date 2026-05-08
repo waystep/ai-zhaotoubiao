@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { BarChart3, FolderOpen, FileText, ClipboardCheck, AlertCircle } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { TruncatedText } from "@/components/ui/truncated-text";
 
 export default function AnalyticsPage() {
   const [projectId, setProjectId] = useState("");
@@ -42,9 +44,10 @@ export default function AnalyticsPage() {
 
   const [overview, setOverview] = useState<Overview | null>(null);
 
-  const [topCategories, setTopCategories] = useState<Array<{ key: string; count: number }>>([]);
-  const [topDocuments, setTopDocuments] = useState<Array<{ key: string; count: number }>>([]);
-  const [topProjects, setTopProjects] = useState<Array<{ key: string; count: number }>>([]);
+  type TopItem = { id?: string; key: string; count: number; projectId?: string | null };
+  const [topCategories, setTopCategories] = useState<TopItem[]>([]);
+  const [topDocuments, setTopDocuments] = useState<TopItem[]>([]);
+  const [topProjects, setTopProjects] = useState<TopItem[]>([]);
 
   // 默认近 30 天
   useEffect(() => {
@@ -102,9 +105,9 @@ export default function AnalyticsPage() {
       if (!topDocRes.ok) throw new Error("top(document) 请求失败");
       if (!topProjRes.ok) throw new Error("top(project) 请求失败");
       const ovJson = (await ovRes.json()) as OverviewResponse;
-      const topJson = (await topRes.json()) as { items: Array<{ key: string; count: number }> };
-      const topDocJson = (await topDocRes.json()) as { items: Array<{ key: string; count: number }> };
-      const topProjJson = (await topProjRes.json()) as { items: Array<{ key: string; count: number }> };
+      const topJson = (await topRes.json()) as { items: TopItem[] };
+      const topDocJson = (await topDocRes.json()) as { items: TopItem[] };
+      const topProjJson = (await topProjRes.json()) as { items: TopItem[] };
       setOverview(ovJson.overview);
       setTopCategories(topJson.items || []);
       setTopDocuments(topDocJson.items || []);
@@ -257,9 +260,15 @@ export default function AnalyticsPage() {
           <CardContent>
             <div className="text-2xl font-bold">{loading ? "--" : overview?.documents.total ?? 0}</div>
             <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
-              <span>解析中 {overview?.documents.processing ?? 0}</span>
-              <span>已完成 {overview?.documents.completed ?? 0}</span>
-              <span>失败 {overview?.documents.failed ?? 0}</span>
+              <Badge variant="outline" className="border-yellow-300 text-yellow-700 bg-yellow-50">
+                解析中 {overview?.documents.processing ?? 0}
+              </Badge>
+              <Badge variant="outline" className="border-green-300 text-green-700 bg-green-50">
+                已完成 {overview?.documents.completed ?? 0}
+              </Badge>
+              <Badge variant="outline" className="border-red-300 text-red-700 bg-red-50">
+                失败 {overview?.documents.failed ?? 0}
+              </Badge>
             </div>
           </CardContent>
         </Card>
@@ -272,8 +281,12 @@ export default function AnalyticsPage() {
           <CardContent>
             <div className="text-2xl font-bold">{loading ? "--" : overview?.reports.total ?? 0}</div>
             <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
-              <span>进行中 {overview?.reports.in_progress ?? 0}</span>
-              <span>已完成 {overview?.reports.completed ?? 0}</span>
+              <Badge variant="outline" className="border-yellow-300 text-yellow-700 bg-yellow-50">
+                进行中 {overview?.reports.in_progress ?? 0}
+              </Badge>
+              <Badge variant="outline" className="border-green-300 text-green-700 bg-green-50">
+                已完成 {overview?.reports.completed ?? 0}
+              </Badge>
             </div>
           </CardContent>
         </Card>
@@ -298,10 +311,18 @@ export default function AnalyticsPage() {
           </CardHeader>
           <CardContent className="space-y-2">
             <div className="flex flex-wrap gap-2">
-              <Badge variant="outline">严重 {overview?.issues.bySeverity.critical ?? 0}</Badge>
-              <Badge variant="outline">重要 {overview?.issues.bySeverity.major ?? 0}</Badge>
-              <Badge variant="outline">轻微 {overview?.issues.bySeverity.minor ?? 0}</Badge>
-              <Badge variant="outline">建议 {overview?.issues.bySeverity.suggestion ?? 0}</Badge>
+              <Badge variant="outline" className="border-red-300 text-red-700 bg-red-50">
+                严重 {overview?.issues.bySeverity.critical ?? 0}
+              </Badge>
+              <Badge variant="outline" className="border-orange-300 text-orange-700 bg-orange-50">
+                重要 {overview?.issues.bySeverity.major ?? 0}
+              </Badge>
+              <Badge variant="outline" className="border-yellow-300 text-yellow-700 bg-yellow-50">
+                轻微 {overview?.issues.bySeverity.minor ?? 0}
+              </Badge>
+              <Badge variant="outline" className="border-blue-300 text-blue-700 bg-blue-50">
+                建议 {overview?.issues.bySeverity.suggestion ?? 0}
+              </Badge>
             </div>
             <div className="text-sm text-muted-foreground">
               总计 {overview?.issues.total ?? 0}，已解决 {overview?.issues.resolved ?? 0}，待处理{" "}
@@ -322,10 +343,10 @@ export default function AnalyticsPage() {
               <ol className="space-y-2">
                 {topCategories.map((it, idx) => (
                   <li key={`${it.key}-${idx}`} className="flex items-center justify-between gap-3">
-                    <span className="min-w-0 truncate text-sm">
-                      {idx + 1}. {it.key}
+                    <span className="min-w-0 text-sm">
+                      {idx + 1}. <TruncatedText text={it.key} />
                     </span>
-                    <Badge variant="secondary">{it.count}</Badge>
+                    <Badge variant="secondary" className="tabular-nums">{it.count}</Badge>
                   </li>
                 ))}
               </ol>
@@ -347,10 +368,20 @@ export default function AnalyticsPage() {
               <ol className="space-y-2">
                 {topDocuments.map((it, idx) => (
                   <li key={`${it.key}-${idx}`} className="flex items-center justify-between gap-3">
-                    <span className="min-w-0 truncate text-sm" title={it.key}>
-                      {idx + 1}. {it.key}
-                    </span>
-                    <Badge variant="secondary">{it.count}</Badge>
+                    {it.id && it.projectId ? (
+                      <Link
+                        href={`/projects/${it.projectId}/documents/${it.id}`}
+                        className="min-w-0 text-sm hover:underline"
+                        title="打开文档"
+                      >
+                        {idx + 1}. <TruncatedText text={it.key} />
+                      </Link>
+                    ) : (
+                      <span className="min-w-0 text-sm">
+                        {idx + 1}. <TruncatedText text={it.key} />
+                      </span>
+                    )}
+                    <Badge variant="secondary" className="tabular-nums">{it.count}</Badge>
                   </li>
                 ))}
               </ol>
@@ -370,10 +401,20 @@ export default function AnalyticsPage() {
               <ol className="space-y-2">
                 {topProjects.map((it, idx) => (
                   <li key={`${it.key}-${idx}`} className="flex items-center justify-between gap-3">
-                    <span className="min-w-0 truncate text-sm" title={it.key}>
-                      {idx + 1}. {it.key}
-                    </span>
-                    <Badge variant="secondary">{it.count}</Badge>
+                    {it.id ? (
+                      <Link
+                        href={`/projects/${it.id}`}
+                        className="min-w-0 text-sm hover:underline"
+                        title="打开项目"
+                      >
+                        {idx + 1}. <TruncatedText text={it.key} />
+                      </Link>
+                    ) : (
+                      <span className="min-w-0 text-sm">
+                        {idx + 1}. <TruncatedText text={it.key} />
+                      </span>
+                    )}
+                    <Badge variant="secondary" className="tabular-nums">{it.count}</Badge>
                   </li>
                 ))}
               </ol>

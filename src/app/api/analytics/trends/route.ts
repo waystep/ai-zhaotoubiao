@@ -4,17 +4,28 @@ import { db } from "@/lib/db/client";
 import { documents, reviewIssues, reviewReports, tenderProjects } from "@/lib/db/schema";
 import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 
+function parseDateOnlyLocal(raw: string, boundary: "start" | "end") {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw.trim());
+  if (m) {
+    const y = Number(m[1]);
+    const mo = Number(m[2]) - 1;
+    const d = Number(m[3]);
+    const dt = new Date(y, mo, d);
+    if (boundary === "start") dt.setHours(0, 0, 0, 0);
+    else dt.setHours(23, 59, 59, 999);
+    return dt;
+  }
+  const dt = new Date(raw);
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt;
+}
+
 function parseDateRange(params: URLSearchParams) {
   const fromRaw = params.get("from");
   const toRaw = params.get("to");
-  const from = fromRaw ? new Date(fromRaw) : null;
-  const to = toRaw ? new Date(toRaw) : null;
-  const fromOk = from && !isNaN(from.getTime());
-  const toOk = to && !isNaN(to.getTime());
-  return {
-    from: fromOk ? from! : null,
-    to: toOk ? to! : null,
-  };
+  const from = fromRaw ? parseDateOnlyLocal(fromRaw, "start") : null;
+  const to = toRaw ? parseDateOnlyLocal(toRaw, "end") : null;
+  return { from, to };
 }
 
 type Metric = "documents" | "reports" | "issues";
