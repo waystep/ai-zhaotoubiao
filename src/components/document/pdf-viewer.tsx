@@ -42,6 +42,8 @@ interface PdfViewerProps {
   documentId: string;
   blocks?: DocumentBlock[];
   highlightedIssues?: IssueLocation[];
+  /** 当前被选中/聚焦的问题，在 PDF 上用醒目样式区分 */
+  focusedIssue?: IssueLocation | null;
   currentPage?: number;
   onPageChange?: (pageNumber: number) => void;
 }
@@ -85,6 +87,7 @@ export function PdfViewer({
   documentId,
   blocks = [],
   highlightedIssues = [],
+  focusedIssue,
   currentPage,
   onPageChange,
 }: PdfViewerProps) {
@@ -117,6 +120,13 @@ export function PdfViewer({
   const lastWidthRef = useRef(0);
   /** 各页当前 intersectionRatio（observer 每次只回调变化的条目，须累加更新） */
   const pageRatioRef = useRef<Map<number, number>>(new Map());
+  /**
+   * 正在执行 programmatic scrollIntoView 时设为目标页号（非 0），
+   * IntersectionObserver 期间跳过 onPageChange，防止父组件更新 currentPage 后再次触发滚动振荡。
+   * 滚动完成（~700ms）后清零。
+   */
+  const progScrollTargetRef = useRef(0);
+  const progScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const pageWidth = Math.round(Math.max(240, containerWidth * zoom));
 
@@ -138,6 +148,8 @@ export function PdfViewer({
     lastIoPageRef.current = 0;
     lastWidthRef.current = 0;
     pageRatioRef.current.clear();
+    progScrollTargetRef.current = 0;
+    if (progScrollTimerRef.current) clearTimeout(progScrollTimerRef.current);
   }, [documentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Container width：量宽与滚动分离 + rAF 合并，减少滚动条/子树重排导致的连续重绘 ───
@@ -192,7 +204,10 @@ export function PdfViewer({
         if (bestPage > 0 && bestPage !== lastIoPageRef.current) {
           lastIoPageRef.current = bestPage;
           setActivePage(bestPage);
-          onPageChange?.(bestPage);
+          // 屏蔽 programmatic scroll 期间的回调，防止父组件更新 currentPage 造成振荡
+          if (progScrollTargetRef.current === 0) {
+            onPageChange?.(bestPage);
+          }
         }
       },
       { root: container, threshold: [0, 0.1, 0.25, 0.5, 0.75, 1.0] }
@@ -201,18 +216,6 @@ export function PdfViewer({
     for (const [, el] of pageEls.current) observer.observe(el);
     return () => observer.disconnect();
   }, [numPages, pdfReady]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ─── External currentPage prop → scroll into view ─────────────────────────
-  useEffect(() => {
-    if (currentPage == null || currentPage < 1) return;
-    const target = numPages > 0 ? Math.min(numPages, currentPage) : currentPage;
-    const el = pageEls.current.get(target);
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
-    } else {
-      setActivePage(target);
-    }
-  }, [currentPage, numPages]);
 
   // ─── Clamp activePage after PDF loads ─────────────────────────────────────
   useEffect(() => {
@@ -248,7 +251,15 @@ export function PdfViewer({
   // ─── Navigation helpers ───────────────────────────────────────────────────
   const scrollToPage = useCallback((page: number) => {
     const el = pageEls.current.get(page);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (!el) return;
+    // 标记 programmatic scroll，屏蔽 IO 期间的 onPageChange，防止父组件回写 currentPage 造成振荡
+    progScrollTargetRef.current = page;
+    if (progScrollTimerRef.current) clearTimeout(progScrollTimerRef.current);
+    progScrollTimerRef.current = setTimeout(() => {
+      progScrollTargetRef.current = 0;
+      progScrollTimerRef.current = null;
+    }, 700);
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
   const goPrev = () => {
@@ -271,6 +282,21 @@ export function PdfViewer({
     setPageInputValue("");
   };
 
+  // ─── External currentPage prop → scroll into view ─────────────────────────
+  // 必须在 scrollToPage 声明之后
+  useEffect(() => {
+    if (currentPage == null || currentPage < 1) return;
+    const target = numPages > 0 ? Math.min(numPages, currentPage) : currentPage;
+    // 已经在目标页且无进行中的跳转，不重复滚动
+    if (target === activePage && progScrollTargetRef.current === 0) return;
+    if (pageEls.current.has(target)) {
+      scrollToPage(target);
+    } else {
+      setActivePage(target);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, numPages, scrollToPage]);
+
   // ─── Per-page highlight overlay ───────────────────────────────────────────
   const highlightsByPage = useMemo(() => {
     const map = new Map<number, IssueLocation[]>();
@@ -292,33 +318,66 @@ export function PdfViewer({
     return map;
   }, [blocks]);
 
+  function isFocused(issue: IssueLocation): boolean {
+    if (!focusedIssue) return false;
+    return (
+      focusedIssue.pageNumber === issue.pageNumber &&
+      focusedIssue.blockIndex === issue.blockIndex
+    );
+  }
+
   function renderPageOverlay(pageNum: number) {
     if (!overlaySize) return null;
-    const issues = highlightsByPage.get(pageNum);
-    if (!issues || issues.length === 0) return null;
+
+    const issues = highlightsByPage.get(pageNum) ?? [];
+    // 如果没有高亮问题，但本页有 focusedIssue，也要渲染
+    const focusedOnThisPage =
+      focusedIssue?.pageNumber === pageNum ? focusedIssue : null;
+    const allIssues =
+      focusedOnThisPage && !issues.includes(focusedOnThisPage)
+        ? [...issues, focusedOnThisPage]
+        : issues;
+
+    if (allIssues.length === 0) return null;
+
     const pageBlocks = blocksByPage.get(pageNum) ?? [];
     const boxesForRef = [
-      ...(blocksByPage.get(pageNum) ?? []).map((b) => b.bbox),
-      ...issues.flatMap((i) => {
+      ...pageBlocks.map((b) => b.bbox),
+      ...allIssues.flatMap((i) => {
         const b = boxForIssue(i, pageBlocks);
         return b ? [b] : [];
       }),
     ];
-    const { refW, refH } = inferRefDimensions(boxesForRef, pageBaseDims!.w, pageBaseDims!.h);
+    const { refW, refH } = inferRefDimensions(
+      boxesForRef,
+      pageBaseDims!.w,
+      pageBaseDims!.h
+    );
 
     return (
       <div
         className="pointer-events-none absolute left-0 top-0"
         style={{ width: overlaySize.w, height: overlaySize.h }}
       >
-        {issues.map((issue, idx) => {
+        {allIssues.map((issue, idx) => {
           const box = boxForIssue(issue, pageBlocks);
           if (!box) return null;
-          const { left, top, width, height } = mapBoxToOverlay(box, refW, refH, overlaySize.w, overlaySize.h);
+          const { left, top, width, height } = mapBoxToOverlay(
+            box,
+            refW,
+            refH,
+            overlaySize.w,
+            overlaySize.h
+          );
+          const focused = isFocused(issue);
           return (
             <div
               key={`${pageNum}-${issue.blockIndex}-${idx}`}
-              className="pointer-events-none absolute rounded-sm border-2 border-yellow-500 bg-yellow-300/20"
+              className={
+                focused
+                  ? "pointer-events-none absolute rounded-sm border-2 border-orange-500 bg-orange-400/30 shadow-[0_0_0_2px_rgba(249,115,22,0.4)]"
+                  : "pointer-events-none absolute rounded-sm border-2 border-yellow-500 bg-yellow-300/20"
+              }
               style={{ left, top, width, height }}
             />
           );

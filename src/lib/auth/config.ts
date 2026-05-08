@@ -24,6 +24,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       credentials: {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
+        rememberMe: { label: "Remember Me", type: "text" },
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) {
@@ -59,12 +60,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           image: user.avatar,
           role: user.role || membership?.role || "supplier_staff",
           orgId: membership?.orgId || undefined,
+          rememberMe: credentials.rememberMe === "true",
         };
       },
     }),
   ],
   session: {
     strategy: "jwt",
+    maxAge: 30 * 24 * 60 * 60, // cookie 最长保留 30 天
   },
   pages: {
     signIn: "/login",
@@ -76,6 +79,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.id = user.id;
         token.role = user.role;
         token.orgId = user.orgId;
+        // 登录时根据"记住我"设置 JWT 过期时间
+        // 记住我：30 天；不记住：8 小时（关闭浏览器后下次打开需重新登录）
+        const maxAge = user.rememberMe
+          ? 30 * 24 * 60 * 60
+          : 8 * 60 * 60;
+        token.exp = Math.floor(Date.now() / 1000) + maxAge;
       }
       return token;
     },

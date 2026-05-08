@@ -106,6 +106,7 @@ export default function ReportDetailPage() {
   const [blocks, setBlocks] = useState<DocumentBlock[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedIssueId, setSelectedIssueId] = useState<string | undefined>();
+  const [activeTab, setActiveTab] = useState("issues");
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
 
@@ -189,6 +190,7 @@ export default function ReportDetailPage() {
   function handleIssueClick(issue: Issue) {
     setSelectedIssueId(issue.id);
     setCurrentPage(issue.location.pageNumber);
+    setActiveTab("preview");
   }
 
   function handlePageChange(pageNumber: number) {
@@ -371,7 +373,7 @@ export default function ReportDetailPage() {
 
       {/* 问题清单和文档预览 */}
       {report.status === "completed" && report.issues && report.issues.length > 0 && (
-        <Tabs defaultValue="issues" className="space-y-4">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <TabsList>
             <TabsTrigger value="issues" className="flex items-center gap-2">
               <AlertCircle className="h-4 w-4" />
@@ -400,16 +402,15 @@ export default function ReportDetailPage() {
                   {report.issues.map((issue, index) => (
                     <div
                       key={issue.id}
-                      className={`p-4 rounded-lg border cursor-pointer transition-all ${
+                      className={`p-4 rounded-lg border transition-all ${
                         selectedIssueId === issue.id
                           ? "ring-2 ring-primary"
                           : ""
                       } ${severityColors[issue.severity as keyof typeof severityColors]}`}
-                      onClick={() => handleIssueClick(issue)}
                     >
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2 mb-2">
                             <span className="font-semibold">{index + 1}. {issue.title}</span>
                             <Badge variant="outline" className={severityColors[issue.severity as keyof typeof severityColors]}>
                               {severityLabels[issue.severity as keyof typeof severityLabels]}
@@ -430,9 +431,20 @@ export default function ReportDetailPage() {
                             </p>
                           )}
                         </div>
-                        <Badge variant={issue.isResolved ? "default" : "secondary"}>
-                          {issue.isResolved ? "已解决" : "待处理"}
-                        </Badge>
+                        <div className="flex flex-col items-end gap-2 shrink-0">
+                          <Badge variant={issue.isResolved ? "default" : "secondary"}>
+                            {issue.isResolved ? "已解决" : "待处理"}
+                          </Badge>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-xs gap-1"
+                            onClick={() => handleIssueClick(issue)}
+                          >
+                            <Eye className="h-3 w-3" />
+                            定位预览
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -446,24 +458,24 @@ export default function ReportDetailPage() {
               <CardHeader>
                 <CardTitle>文档内容预览</CardTitle>
                 <CardDescription>
-                  查看文档解析内容，高亮区域为问题位置
+                  {selectedIssueId
+                    ? `已定位到第 ${currentPage} 页 · 橙色框为当前问题，黄色框为其他问题`
+                    : "查看文档解析内容，高亮区域为问题位置"}
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {blocks.length > 0 ? (
-                  <PdfViewer
-                    documentId={report.document.id}
-                    blocks={blocks}
-                    highlightedIssues={report.issues.map((i) => i.location)}
-                    currentPage={currentPage}
-                    onPageChange={handlePageChange}
-                  />
-                ) : (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <FileText className="h-12 w-12 mb-4" />
-                    <p>文档内容加载中...</p>
-                  </div>
-                )}
+                <PdfViewer
+                  documentId={report.document.id}
+                  blocks={blocks}
+                  highlightedIssues={report.issues.map((i) => i.location)}
+                  focusedIssue={
+                    selectedIssueId
+                      ? report.issues.find((i) => i.id === selectedIssueId)?.location
+                      : undefined
+                  }
+                  currentPage={currentPage}
+                  onPageChange={handlePageChange}
+                />
               </CardContent>
             </Card>
           </TabsContent>

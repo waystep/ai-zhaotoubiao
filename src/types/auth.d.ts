@@ -19,6 +19,7 @@ declare module "next-auth" {
     image?: string | null;
     role?: string;
     orgId?: string;
+    rememberMe?: boolean;
   }
 }
 
