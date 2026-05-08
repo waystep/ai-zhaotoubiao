@@ -107,10 +107,16 @@ export function PdfViewer({
   const [pageInputValue, setPageInputValue] = useState("");
   const [pageInputFocused, setPageInputFocused] = useState(false);
 
-  const wrapRef = useRef<HTMLDivElement>(null);
+  /** 仅用于量宽：不受内部 PDF 滚动条出现/消失影响（与滚动区 sibling，同级占满行） */
+  const widthProbeRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Map from page number → DOM element for scrollIntoView
   const pageEls = useRef<Map<number, HTMLDivElement>>(new Map());
+  const lastIoPageRef = useRef(0);
+  const widthRafRef = useRef<number | null>(null);
+  const lastWidthRef = useRef(0);
+  /** 各页当前 intersectionRatio（observer 每次只回调变化的条目，须累加更新） */
+  const pageRatioRef = useRef<Map<number, number>>(new Map());
 
   const pageWidth = Math.round(Math.max(240, containerWidth * zoom));
 
@@ -129,17 +135,36 @@ export function PdfViewer({
     setPageBaseDims(null);
     setActivePage(Math.max(1, currentPage ?? 1));
     pageEls.current.clear();
+    lastIoPageRef.current = 0;
+    lastWidthRef.current = 0;
+    pageRatioRef.current.clear();
   }, [documentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ─── Container width via ResizeObserver ────────────────────────────────────
+  // ─── Container width：量宽与滚动分离 + rAF 合并，减少滚动条/子树重排导致的连续重绘 ───
   useEffect(() => {
-    const el = wrapRef.current;
+    const el = widthProbeRef.current;
     if (!el) return;
+
+    const applyWidth = (w: number) => {
+      const next = Math.max(240, Math.floor(w - 16));
+      if (Math.abs(next - lastWidthRef.current) < 2) return;
+      lastWidthRef.current = next;
+      setContainerWidth(next);
+    };
+
     const ro = new ResizeObserver(() => {
-      setContainerWidth(Math.max(240, Math.floor(el.clientWidth - 16)));
+      if (widthRafRef.current != null) cancelAnimationFrame(widthRafRef.current);
+      widthRafRef.current = requestAnimationFrame(() => {
+        widthRafRef.current = null;
+        applyWidth(el.clientWidth);
+      });
     });
     ro.observe(el);
-    return () => ro.disconnect();
+    applyWidth(el.clientWidth);
+    return () => {
+      ro.disconnect();
+      if (widthRafRef.current != null) cancelAnimationFrame(widthRafRef.current);
+    };
   }, []);
 
   // ─── Scroll-based active page tracking via IntersectionObserver ───────────
@@ -148,20 +173,24 @@ export function PdfViewer({
     const container = scrollRef.current;
     if (!container) return;
 
-    const ratioMap = new Map<number, number>();
+    const ratios = pageRatioRef.current;
 
     const observer = new IntersectionObserver(
       (entries) => {
         for (const e of entries) {
           const p = parseInt(e.target.getAttribute("data-page") ?? "0", 10);
-          if (p > 0) ratioMap.set(p, e.intersectionRatio);
+          if (p > 0) ratios.set(p, e.intersectionRatio);
         }
         let best = -1;
         let bestPage = 0;
-        for (const [p, r] of ratioMap) {
-          if (r > best) { best = r; bestPage = p; }
+        for (const [p, r] of ratios) {
+          if (r > best) {
+            best = r;
+            bestPage = p;
+          }
         }
-        if (bestPage > 0) {
+        if (bestPage > 0 && bestPage !== lastIoPageRef.current) {
+          lastIoPageRef.current = bestPage;
           setActivePage(bestPage);
           onPageChange?.(bestPage);
         }
@@ -392,7 +421,13 @@ export function PdfViewer({
       {/* ── Scroll container ── */}
       <Card>
         <CardContent className="p-4">
-          <div ref={wrapRef} className="relative">
+          <div className="relative w-full min-w-0">
+            {/* 量宽探针：不占高度，避免 PDF 区域纵向滚动条影响 clientWidth */}
+            <div
+              ref={widthProbeRef}
+              className="pointer-events-none h-0 w-full min-w-0 overflow-hidden"
+              aria-hidden
+            />
             {/* Loading overlay (shown only before PDF is ready) */}
             {!pdfReady && (
               <div className="flex h-[480px] items-center justify-center rounded-lg bg-muted/30">
@@ -402,7 +437,7 @@ export function PdfViewer({
 
             <div
               ref={scrollRef}
-              className={`overflow-y-auto rounded-lg bg-muted/20 ${pdfReady ? "" : "hidden"}`}
+              className={`overflow-y-auto rounded-lg bg-muted/20 [scrollbar-gutter:stable] ${pdfReady ? "" : "hidden"}`}
               style={{ maxHeight: "80vh" }}
             >
               <Document

@@ -116,14 +116,15 @@ export default function DashboardLayout({
         </div>
       </aside>
 
-      <main className="flex-1 flex flex-col">
+      <main className="flex min-w-0 flex-1 flex-col">
         <header className="border-b bg-card px-6 py-4">
           <h1 className="text-2xl font-semibold">
             {navigation.find((item) => navItemIsActive(pathname, item.href))?.name ||
               "Dashboard"}
           </h1>
         </header>
-        <div className="flex-1 p-6 overflow-auto">
+        {/* scrollbar-gutter: 避免主滚动条显隐时挤占内容宽度，引发 ResizeObserver / PDF 整页重绘闪动 */}
+        <div className="min-h-0 flex-1 overflow-auto p-6 [scrollbar-gutter:stable]">
           {children}
         </div>
       </main>
