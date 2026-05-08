@@ -76,9 +76,7 @@ function mapBoxToOverlay(
 
 function boxForIssue(issue: IssueLocation, pageBlocks: DocumentBlock[]) {
   const b = issue.bbox;
-  if (b && b.x1 > b.x0 && b.y1 > b.y0) {
-    return b;
-  }
+  if (b && b.x1 > b.x0 && b.y1 > b.y0) return b;
   const block = pageBlocks.find((x) => x.blockIndex === issue.blockIndex);
   return block?.bbox ?? null;
 }
@@ -97,32 +95,43 @@ export function PdfViewer({
   const [activePage, setActivePage] = useState(() => Math.max(1, currentPage ?? 1));
   const [zoom, setZoom] = useState(1);
   const [containerWidth, setContainerWidth] = useState(720);
-  const [layout, setLayout] = useState<{
-    overlayW: number;
-    overlayH: number;
-    baseW: number;
-    baseH: number;
-  } | null>(null);
+
+  // Base page dimensions — recorded once from page 1 render, stable across zoom changes.
+  // This eliminates highlight overlay flash: overlaySize is always derived, never null after first render.
+  const [pageBaseDims, setPageBaseDims] = useState<{ w: number; h: number } | null>(null);
+
   const [pdfReady, setPdfReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  // Page number input
+  const [pageInputValue, setPageInputValue] = useState("");
+  const [pageInputFocused, setPageInputFocused] = useState(false);
+
   const wrapRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // Map from page number → DOM element for scrollIntoView
+  const pageEls = useRef<Map<number, HTMLDivElement>>(new Map());
 
   const pageWidth = Math.round(Math.max(240, containerWidth * zoom));
 
-  const pageBlocks = useMemo(
-    () => blocks.filter((b) => b.pageNumber === activePage),
-    [blocks, activePage]
-  );
+  // Derived overlay size — always in sync with current pageWidth, no clearing needed
+  const overlaySize = pageBaseDims
+    ? { w: pageWidth, h: Math.round((pageWidth / pageBaseDims.w) * pageBaseDims.h) }
+    : null;
 
+  const totalPagesLabel = numPages > 0 ? numPages : Math.max(1, ...blocks.map((b) => b.pageNumber), 0);
+
+  // ─── Reset on document change ──────────────────────────────────────────────
   useEffect(() => {
     setNumPages(0);
     setPdfReady(false);
     setLoadError(null);
-    setLayout(null);
+    setPageBaseDims(null);
     setActivePage(Math.max(1, currentPage ?? 1));
-  }, [documentId]);
+    pageEls.current.clear();
+  }, [documentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ─── Container width via ResizeObserver ────────────────────────────────────
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
@@ -133,21 +142,56 @@ export function PdfViewer({
     return () => ro.disconnect();
   }, []);
 
+  // ─── Scroll-based active page tracking via IntersectionObserver ───────────
+  useEffect(() => {
+    if (numPages <= 0 || !pdfReady) return;
+    const container = scrollRef.current;
+    if (!container) return;
+
+    const ratioMap = new Map<number, number>();
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          const p = parseInt(e.target.getAttribute("data-page") ?? "0", 10);
+          if (p > 0) ratioMap.set(p, e.intersectionRatio);
+        }
+        let best = -1;
+        let bestPage = 0;
+        for (const [p, r] of ratioMap) {
+          if (r > best) { best = r; bestPage = p; }
+        }
+        if (bestPage > 0) {
+          setActivePage(bestPage);
+          onPageChange?.(bestPage);
+        }
+      },
+      { root: container, threshold: [0, 0.1, 0.25, 0.5, 0.75, 1.0] }
+    );
+
+    for (const [, el] of pageEls.current) observer.observe(el);
+    return () => observer.disconnect();
+  }, [numPages, pdfReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ─── External currentPage prop → scroll into view ─────────────────────────
   useEffect(() => {
     if (currentPage == null || currentPage < 1) return;
-    if (numPages > 0 && currentPage > numPages) {
-      setActivePage(numPages);
-      onPageChange?.(numPages);
-      return;
+    const target = numPages > 0 ? Math.min(numPages, currentPage) : currentPage;
+    const el = pageEls.current.get(target);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else {
+      setActivePage(target);
     }
-    setActivePage((p) => (p === currentPage ? p : currentPage));
   }, [currentPage, numPages]);
 
+  // ─── Clamp activePage after PDF loads ─────────────────────────────────────
   useEffect(() => {
     if (numPages <= 0) return;
-    setActivePage((p) => (p > numPages ? numPages : p < 1 ? 1 : p));
+    setActivePage((p) => Math.min(Math.max(1, p), numPages));
   }, [numPages]);
 
+  // ─── PDF load callbacks ───────────────────────────────────────────────────
   const onDocumentLoadSuccess = useCallback(({ numPages: n }: { numPages: number }) => {
     setNumPages(n);
     setPdfReady(true);
@@ -160,73 +204,101 @@ export function PdfViewer({
     setPdfReady(true);
   }, []);
 
-  const handlePageRenderSuccess = useCallback(
+  // Record base dims from page 1 render — only once, stable across zoom.
+  const handlePage1RenderSuccess = useCallback(
     (page: { getViewport: (opts: { scale: number }) => { width: number; height: number } }) => {
-      const base = page.getViewport({ scale: 1 });
-      const scale = pageWidth / base.width;
-      const vp = page.getViewport({ scale });
-      setLayout({
-        overlayW: vp.width,
-        overlayH: vp.height,
-        baseW: base.width,
-        baseH: base.height,
+      setPageBaseDims((prev) => {
+        if (prev) return prev; // already set, don't overwrite
+        const base = page.getViewport({ scale: 1 });
+        return { w: base.width, h: base.height };
       });
     },
-    [pageWidth]
+    []
   );
 
+  // ─── Navigation helpers ───────────────────────────────────────────────────
+  const scrollToPage = useCallback((page: number) => {
+    const el = pageEls.current.get(page);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
   const goPrev = () => {
-    setActivePage((p) => {
-      const next = Math.max(1, p - 1);
-      if (next !== p) onPageChange?.(next);
-      return next;
-    });
+    const next = Math.max(1, activePage - 1);
+    scrollToPage(next);
+    // activePage will update via IntersectionObserver
   };
 
   const goNext = () => {
-    setActivePage((p) => {
-      const next = numPages > 0 ? Math.min(numPages, p + 1) : p + 1;
-      if (next !== p) onPageChange?.(next);
-      return next;
-    });
+    const next = numPages > 0 ? Math.min(numPages, activePage + 1) : activePage + 1;
+    scrollToPage(next);
   };
 
-  const issueBoxes = useMemo(() => {
-    const list: Array<{ key: string; box: { x0: number; y0: number; x1: number; y1: number } }> = [];
-    for (const issue of highlightedIssues) {
-      if (issue.pageNumber !== activePage) continue;
-      const box = boxForIssue(issue, pageBlocks);
-      if (!box) continue;
-      list.push({
-        key: `issue-${issue.pageNumber}-${issue.blockIndex}-${issue.textSnippet?.slice(0, 12) ?? ""}`,
-        box,
-      });
+  const commitPageInput = () => {
+    const n = parseInt(pageInputValue, 10);
+    if (!isNaN(n) && n >= 1 && n <= (numPages || Infinity)) {
+      scrollToPage(n);
     }
-    return list;
-  }, [highlightedIssues, activePage, pageBlocks]);
+    setPageInputFocused(false);
+    setPageInputValue("");
+  };
 
-  const highlightOverlay = useMemo(() => {
-    if (!layout) return null;
+  // ─── Per-page highlight overlay ───────────────────────────────────────────
+  const highlightsByPage = useMemo(() => {
+    const map = new Map<number, IssueLocation[]>();
+    for (const issue of highlightedIssues) {
+      const list = map.get(issue.pageNumber) ?? [];
+      list.push(issue);
+      map.set(issue.pageNumber, list);
+    }
+    return map;
+  }, [highlightedIssues]);
+
+  const blocksByPage = useMemo(() => {
+    const map = new Map<number, DocumentBlock[]>();
+    for (const b of blocks) {
+      const list = map.get(b.pageNumber) ?? [];
+      list.push(b);
+      map.set(b.pageNumber, list);
+    }
+    return map;
+  }, [blocks]);
+
+  function renderPageOverlay(pageNum: number) {
+    if (!overlaySize) return null;
+    const issues = highlightsByPage.get(pageNum);
+    if (!issues || issues.length === 0) return null;
+    const pageBlocks = blocksByPage.get(pageNum) ?? [];
     const boxesForRef = [
-      ...pageBlocks.map((b) => b.bbox),
-      ...issueBoxes.map((x) => x.box),
+      ...(blocksByPage.get(pageNum) ?? []).map((b) => b.bbox),
+      ...issues.flatMap((i) => {
+        const b = boxForIssue(i, pageBlocks);
+        return b ? [b] : [];
+      }),
     ];
-    const { refW, refH } = inferRefDimensions(boxesForRef, layout.baseW, layout.baseH);
+    const { refW, refH } = inferRefDimensions(boxesForRef, pageBaseDims!.w, pageBaseDims!.h);
 
-    return issueBoxes.map(({ key, box }) => {
-      const { left, top, width, height } = mapBoxToOverlay(box, refW, refH, layout.overlayW, layout.overlayH);
-      return (
-        <div
-          key={key}
-          className="pointer-events-none absolute rounded-sm border-2 border-yellow-500 bg-yellow-300/20"
-          style={{ left, top, width, height }}
-        />
-      );
-    });
-  }, [layout, pageBlocks, issueBoxes]);
+    return (
+      <div
+        className="pointer-events-none absolute left-0 top-0"
+        style={{ width: overlaySize.w, height: overlaySize.h }}
+      >
+        {issues.map((issue, idx) => {
+          const box = boxForIssue(issue, pageBlocks);
+          if (!box) return null;
+          const { left, top, width, height } = mapBoxToOverlay(box, refW, refH, overlaySize.w, overlaySize.h);
+          return (
+            <div
+              key={`${pageNum}-${issue.blockIndex}-${idx}`}
+              className="pointer-events-none absolute rounded-sm border-2 border-yellow-500 bg-yellow-300/20"
+              style={{ left, top, width, height }}
+            />
+          );
+        })}
+      </div>
+    );
+  }
 
-  const totalPagesLabel = numPages > 0 ? numPages : Math.max(1, ...blocks.map((b) => b.pageNumber), 0);
-
+  // ─── Error state ──────────────────────────────────────────────────────────
   if (loadError) {
     return (
       <Card>
@@ -240,16 +312,51 @@ export function PdfViewer({
     );
   }
 
+  // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div className="space-y-4">
+      {/* ── Toolbar ── */}
       <div className="flex flex-wrap items-center justify-between gap-3">
+        {/* Page navigation */}
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={goPrev} disabled={activePage <= 1}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <span className="text-sm tabular-nums">
-            第 {activePage} / {totalPagesLabel} 页
-          </span>
+
+          {/* Page number input */}
+          <div className="flex items-center gap-1 text-sm">
+            <span>第</span>
+            {pageInputFocused ? (
+              <input
+                autoFocus
+                type="number"
+                min={1}
+                max={numPages || undefined}
+                value={pageInputValue}
+                onChange={(e) => setPageInputValue(e.target.value)}
+                onBlur={commitPageInput}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitPageInput();
+                  if (e.key === "Escape") { setPageInputFocused(false); setPageInputValue(""); }
+                }}
+                className="w-14 rounded border border-input bg-background px-1 py-0.5 text-center text-sm tabular-nums outline-none ring-1 ring-primary"
+              />
+            ) : (
+              <button
+                type="button"
+                title="点击输入页码"
+                className="min-w-[2.5rem] rounded px-1 py-0.5 text-center tabular-nums hover:bg-muted"
+                onClick={() => {
+                  setPageInputValue(String(activePage));
+                  setPageInputFocused(true);
+                }}
+              >
+                {activePage}
+              </button>
+            )}
+            <span>/ {totalPagesLabel} 页</span>
+          </div>
+
           <Button
             variant="outline"
             size="sm"
@@ -260,26 +367,44 @@ export function PdfViewer({
           </Button>
         </div>
 
+        {/* Zoom */}
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => setZoom((z) => Math.max(0.5, z - 0.25))} disabled={zoom <= 0.5}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setZoom((z) => Math.max(0.5, +(z - 0.25).toFixed(2)))}
+            disabled={zoom <= 0.5}
+          >
             <ZoomOut className="h-4 w-4" />
           </Button>
           <span className="w-12 text-center text-sm tabular-nums">{Math.round(zoom * 100)}%</span>
-          <Button variant="outline" size="sm" onClick={() => setZoom((z) => Math.min(2, z + 0.25))} disabled={zoom >= 2}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setZoom((z) => Math.min(2, +(z + 0.25).toFixed(2)))}
+            disabled={zoom >= 2}
+          >
             <ZoomIn className="h-4 w-4" />
           </Button>
         </div>
       </div>
 
+      {/* ── Scroll container ── */}
       <Card>
         <CardContent className="p-4">
-          <div ref={wrapRef} className="relative min-h-[480px] overflow-auto rounded-lg bg-muted/30">
+          <div ref={wrapRef} className="relative">
+            {/* Loading overlay (shown only before PDF is ready) */}
             {!pdfReady && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60">
+              <div className="flex h-[480px] items-center justify-center rounded-lg bg-muted/30">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
               </div>
             )}
-            <div className="relative mx-auto w-fit max-w-full py-2">
+
+            <div
+              ref={scrollRef}
+              className={`overflow-y-auto rounded-lg bg-muted/20 ${pdfReady ? "" : "hidden"}`}
+              style={{ maxHeight: "80vh" }}
+            >
               <Document
                 key={documentId}
                 file={fileUrl}
@@ -287,58 +412,70 @@ export function PdfViewer({
                 onLoadSuccess={onDocumentLoadSuccess}
                 onLoadError={onDocumentLoadError}
                 loading={null}
-                className="flex justify-center"
+                className="flex flex-col items-center gap-4 py-4"
               >
-                {numPages > 0 && (
-                  <div className="relative shadow-sm">
-                    <Page
-                      pageNumber={activePage}
-                      width={pageWidth}
-                      renderTextLayer
-                      renderAnnotationLayer={false}
-                      onRenderSuccess={handlePageRenderSuccess}
-                      loading={
-                        <div className="flex h-[520px] items-center justify-center text-sm text-muted-foreground">
-                          渲染页面…
-                        </div>
-                      }
-                    />
-                    {layout ? (
+                {numPages > 0 &&
+                  Array.from({ length: numPages }, (_, i) => {
+                    const pageNum = i + 1;
+                    return (
                       <div
-                        className="pointer-events-none absolute left-0 top-0"
-                        style={{ width: layout.overlayW, height: layout.overlayH }}
+                        key={pageNum}
+                        ref={(el) => {
+                          if (el) pageEls.current.set(pageNum, el);
+                          else pageEls.current.delete(pageNum);
+                        }}
+                        data-page={pageNum}
+                        className="relative shrink-0 shadow-sm"
                       >
-                        {highlightOverlay}
+                        <Page
+                          pageNumber={pageNum}
+                          width={pageWidth}
+                          renderTextLayer
+                          renderAnnotationLayer={false}
+                          // null loading keeps old canvas visible during zoom — no flash
+                          loading={
+                            overlaySize ? (
+                              <div
+                                style={{ width: overlaySize.w, height: overlaySize.h }}
+                                className="bg-white"
+                              />
+                            ) : (
+                              <div className="flex h-[520px] w-full items-center justify-center bg-white text-sm text-muted-foreground">
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              </div>
+                            )
+                          }
+                          onRenderSuccess={pageNum === 1 ? handlePage1RenderSuccess : undefined}
+                        />
+                        {overlaySize && renderPageOverlay(pageNum)}
                       </div>
-                    ) : null}
-                  </div>
-                )}
+                    );
+                  })}
               </Document>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {highlightedIssues.filter((i) => i.pageNumber === activePage).length > 0 && (
+      {/* ── Current page issue list ── */}
+      {(highlightsByPage.get(activePage)?.length ?? 0) > 0 && (
         <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4">
           <p className="mb-2 text-sm font-semibold text-yellow-800">
-            当前页关联 {highlightedIssues.filter((i) => i.pageNumber === activePage).length} 条审查位置
+            当前页关联 {highlightsByPage.get(activePage)!.length} 条审查位置
           </p>
           <ul className="space-y-1">
-            {highlightedIssues
-              .filter((i) => i.pageNumber === activePage)
-              .map((issue, index) => (
-                <li key={`${issue.blockIndex}-${index}`} className="text-sm text-yellow-800">
-                  {issue.textSnippet ? (
-                    <span className="rounded bg-yellow-100 px-1 font-mono">
-                      「{issue.textSnippet.substring(0, 80)}
-                      {issue.textSnippet.length > 80 ? "…" : ""}」
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground">（无摘要）</span>
-                  )}
-                </li>
-              ))}
+            {highlightsByPage.get(activePage)!.map((issue, index) => (
+              <li key={`${issue.blockIndex}-${index}`} className="text-sm text-yellow-800">
+                {issue.textSnippet ? (
+                  <span className="rounded bg-yellow-100 px-1 font-mono">
+                    「{issue.textSnippet.substring(0, 80)}
+                    {issue.textSnippet.length > 80 ? "…" : ""}」
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">（无摘要）</span>
+                )}
+              </li>
+            ))}
           </ul>
         </div>
       )}
