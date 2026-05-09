@@ -12,6 +12,7 @@ import {
   FileText,
   Loader2,
   Play,
+  Sparkles,
   Table,
   Trash2,
   XCircle,
@@ -22,6 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { PdfViewer } from "@/components/document/pdf-viewer";
 import { useToast } from "@/hooks/use-toast";
 
@@ -86,6 +88,8 @@ interface ExtractedItem {
 interface ExtractionResult {
   reviewItems: ExtractedItem[];
   responseItems: ExtractedItem[];
+  extractionStatus?: string;
+  extractionError?: string | null;
   summary?: {
     reviewItemsTotal: number;
     responseItemsTotal: number;
@@ -171,6 +175,22 @@ function rewriteMarkdownImageUrls(markdown: string, documentId: string) {
     .replace(/(<img\b[^>]*\bsrc=["'])(images\/[^"']+)(["'][^>]*>)/gi, (_m, prefix, src, suffix) => `${prefix}${toApiUrl(src)}${suffix}`);
 }
 
+function groupBlocksByPage(blocks: ParsedBlock[]) {
+  const grouped = new Map<number, ParsedBlock[]>();
+  for (const block of blocks) {
+    const list = grouped.get(block.pageNumber) ?? [];
+    list.push(block);
+    grouped.set(block.pageNumber, list);
+  }
+
+  return Array.from(grouped.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([pageNumber, pageBlocks]) => ({
+      pageNumber,
+      blocks: pageBlocks.sort((a, b) => a.blockIndex - b.blockIndex),
+    }));
+}
+
 function ExtractedItemList({
   items,
   emptyText,
@@ -240,6 +260,7 @@ export default function DocumentDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isParsing, setIsParsing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isExtracting, setIsExtracting] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [focusedBlock, setFocusedBlock] = useState<ParsedBlock | null>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -253,10 +274,29 @@ export default function DocumentDetailPage() {
       setExtractionResult({
         reviewItems: data.reviewItems ?? [],
         responseItems: data.responseItems ?? [],
+        extractionStatus: data.document?.extractionStatus,
+        extractionError: data.document?.extractionError,
         summary: data.summary,
       });
     } catch (error) {
       console.error("获取提取结果失败:", error);
+    }
+  }, [documentId]);
+
+  const fetchFullParsedResult = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/documents/${documentId}/blocks`);
+      if (!response.ok) return;
+      const data = await response.json();
+      setParsedResult((prev) => ({
+        id: prev?.id,
+        totalPages: data.totalPages ?? prev?.totalPages ?? 0,
+        fullText: data.fullText ?? prev?.fullText ?? null,
+        structuredContent: prev?.structuredContent,
+        blocks: data.blocks ?? [],
+      }));
+    } catch (error) {
+      console.error("获取完整区块失败:", error);
     }
   }, [documentId]);
 
@@ -268,6 +308,7 @@ export default function DocumentDetailPage() {
         setDocument(data.document);
         setParsedResult(data.parsedResult);
         if (data.document?.parseStatus === "completed") {
+          void fetchFullParsedResult();
           void fetchExtractionResult();
         }
         if (data.document?.parseStatus === "processing") {
@@ -279,7 +320,7 @@ export default function DocumentDetailPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [documentId, fetchExtractionResult]);
+  }, [documentId, fetchExtractionResult, fetchFullParsedResult]);
 
   const stopPolling = useCallback(() => {
     if (pollIntervalRef.current) {
@@ -302,6 +343,7 @@ export default function DocumentDetailPage() {
           stopPolling();
           setIsParsing(false);
           setParsedResult(data.parsedResult);
+          void fetchFullParsedResult();
           void fetchExtractionResult();
           toast({
             title: "解析完成",
@@ -320,7 +362,7 @@ export default function DocumentDetailPage() {
         console.error("轮询解析状态失败:", error);
       }
     }, 3000);
-  }, [documentId, fetchExtractionResult, stopPolling, toast]);
+  }, [documentId, fetchExtractionResult, fetchFullParsedResult, stopPolling, toast]);
 
   useEffect(() => {
     if (hasFetchedRef.current) return;
@@ -395,6 +437,38 @@ export default function DocumentDetailPage() {
     }
   }
 
+  async function handleExtract() {
+    setIsExtracting(true);
+    try {
+      const response = await fetch(`/api/documents/${documentId}/extract`, {
+        method: "POST",
+      });
+
+      if (response.ok) {
+        toast({
+          title: "提取完成",
+          description: "已完成审查项和应答项提取。",
+        });
+        await fetchExtractionResult();
+      } else {
+        const error = await response.json();
+        toast({
+          title: "提取失败",
+          description: error.error || error.details || "提取智能体执行失败",
+          variant: "destructive",
+        });
+      }
+    } catch {
+      toast({
+        title: "网络错误",
+        description: "请检查网络连接",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExtracting(false);
+    }
+  }
+
   const markdown = useMemo(() => {
     const text = parsedResult?.fullText?.trim();
     if (!text) return "";
@@ -435,6 +509,9 @@ export default function DocumentDetailPage() {
   const totalPages = parsedResult?.totalPages ?? 0;
   const totalExtracted =
     extractionResult.reviewItems.length + extractionResult.responseItems.length;
+  const shouldShowExtractedTab = document.docType !== "bid_doc";
+  const blocksByPage = parsedResult ? groupBlocksByPage(parsedResult.blocks) : [];
+  const defaultOpenPages = blocksByPage.slice(0, 2).map((page) => `page-${page.pageNumber}`);
 
   return (
     <div className="space-y-5">
@@ -462,7 +539,9 @@ export default function DocumentDetailPage() {
               </Badge>
               {totalPages > 0 ? <Badge variant="outline">{totalPages} 页</Badge> : null}
               {blockCount > 0 ? <Badge variant="outline">{blockCount} 区块</Badge> : null}
-              {totalExtracted > 0 ? <Badge variant="outline">{totalExtracted} 已提取</Badge> : null}
+              {shouldShowExtractedTab && totalExtracted > 0 ? (
+                <Badge variant="outline">{totalExtracted} 已提取</Badge>
+              ) : null}
               {document.warning ? (
                 <Badge variant="outline" className="border-amber-500 text-amber-700">
                   {document.warning}
@@ -567,122 +646,171 @@ export default function DocumentDetailPage() {
             </CardHeader>
             <CardContent className="min-h-0">
               <Tabs defaultValue="blocks" className="min-h-0">
-                <TabsList className="grid w-full grid-cols-2">
+                <TabsList className={shouldShowExtractedTab ? "grid w-full grid-cols-2" : "grid w-full grid-cols-1"}>
                   <TabsTrigger value="blocks" className="gap-1">
                     <Blocks className="h-4 w-4" />
                     区块详情
                   </TabsTrigger>
-                  <TabsTrigger value="extracted" className="gap-1">
-                    <FileText className="h-4 w-4" />
-                    已提取信息
-                  </TabsTrigger>
+                  {shouldShowExtractedTab ? (
+                    <TabsTrigger value="extracted" className="gap-1">
+                      <FileText className="h-4 w-4" />
+                      已提取信息
+                    </TabsTrigger>
+                  ) : null}
                 </TabsList>
 
                 <TabsContent value="blocks" className="mt-4">
                   <div className="mb-3 text-xs text-muted-foreground">
                     共 {blockCount} 个区块，点击后定位到右侧源文件预览。
                   </div>
-                  <div className="max-h-[calc(100vh-13rem)] space-y-2 overflow-y-auto pr-1">
-                    {parsedResult.blocks.map((block) => (
-                      <button
-                        key={block.id}
-                        type="button"
-                        className="w-full rounded-md border bg-background p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted/40"
-                        onClick={() => {
-                          setFocusedBlock(block);
-                          setCurrentPage(block.pageNumber);
-                        }}
+                  <Accordion
+                    type="multiple"
+                    defaultValue={defaultOpenPages}
+                    className="max-h-[calc(100vh-13rem)] overflow-y-auto pr-1"
+                  >
+                    {blocksByPage.map((page) => (
+                      <AccordionItem
+                        key={page.pageNumber}
+                        value={`page-${page.pageNumber}`}
+                        className="border-b"
                       >
-                        <div className="mb-2 flex items-center gap-2">
-                          {getBlockTypeIcon(block.blockType)}
-                          <Badge variant="outline">P.{block.pageNumber}</Badge>
-                          <Badge variant="secondary">{block.blockType || "text"}</Badge>
-                          <span className="ml-auto text-xs text-muted-foreground">
-                            #{block.blockIndex}
+                        <AccordionTrigger className="py-3 hover:no-underline">
+                          <span className="flex items-center gap-2">
+                            <Badge variant="outline">P.{page.pageNumber}</Badge>
+                            <span>{page.blocks.length} 个区块</span>
                           </span>
-                        </div>
-                        <p className="line-clamp-3 text-sm leading-6 text-muted-foreground">
-                          {block.content || "（无文本内容）"}
-                        </p>
-                      </button>
+                        </AccordionTrigger>
+                        <AccordionContent className="space-y-2 pb-3">
+                          {page.blocks.map((block) => (
+                            <button
+                              key={block.id}
+                              type="button"
+                              className="w-full rounded-md border bg-background p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted/40"
+                              onClick={() => {
+                                setFocusedBlock(block);
+                                setCurrentPage(block.pageNumber);
+                              }}
+                            >
+                              <div className="mb-2 flex items-center gap-2">
+                                {getBlockTypeIcon(block.blockType)}
+                                <Badge variant="secondary">{block.blockType || "text"}</Badge>
+                                <span className="ml-auto text-xs text-muted-foreground">
+                                  #{block.blockIndex}
+                                </span>
+                              </div>
+                              <p className="line-clamp-3 text-sm leading-6 text-muted-foreground">
+                                {block.content || "（无文本内容）"}
+                              </p>
+                            </button>
+                          ))}
+                        </AccordionContent>
+                      </AccordionItem>
                     ))}
-                  </div>
+                  </Accordion>
                 </TabsContent>
 
-                <TabsContent value="extracted" className="mt-4">
-                  <div className="mb-3 grid grid-cols-2 gap-2 text-xs">
-                    <div className="rounded-md bg-muted/50 p-2">
-                      <div className="text-muted-foreground">应答项</div>
-                      <div className="text-lg font-semibold">{extractionResult.responseItems.length}</div>
+                {shouldShowExtractedTab ? (
+                  <TabsContent value="extracted" className="mt-4">
+                    <div className="mb-3 grid grid-cols-2 gap-2 text-xs">
+                      <div className="rounded-md bg-muted/50 p-2">
+                        <div className="text-muted-foreground">应答项</div>
+                        <div className="text-lg font-semibold">{extractionResult.responseItems.length}</div>
+                      </div>
+                      <div className="rounded-md bg-muted/50 p-2">
+                        <div className="text-muted-foreground">审查项</div>
+                        <div className="text-lg font-semibold">{extractionResult.reviewItems.length}</div>
+                      </div>
                     </div>
-                    <div className="rounded-md bg-muted/50 p-2">
-                      <div className="text-muted-foreground">审查项</div>
-                      <div className="text-lg font-semibold">{extractionResult.reviewItems.length}</div>
+                    {totalExtracted === 0 ? (
+                      <div className="mb-4 rounded-md border border-dashed p-4">
+                        <div className="text-sm font-medium">暂无已提取信息</div>
+                        <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                          可调用提取智能体，从当前文档中提取审查项和应答项。
+                        </p>
+                        {extractionResult.extractionError ? (
+                          <p className="mt-2 text-xs text-destructive">
+                            上次提取失败：{extractionResult.extractionError}
+                          </p>
+                        ) : null}
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="mt-3"
+                          onClick={handleExtract}
+                          disabled={isExtracting}
+                        >
+                          {isExtracting ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : (
+                            <Sparkles className="mr-2 h-4 w-4" />
+                          )}
+                          发起提取
+                        </Button>
+                      </div>
+                    ) : null}
+                    <div className="max-h-[calc(100vh-14rem)] space-y-4 overflow-y-auto pr-1">
+                      {document.docType === "tender_doc" ? (
+                        <section>
+                          <h3 className="mb-2 text-sm font-medium">应答项</h3>
+                          <ExtractedItemList
+                            type="response"
+                            items={extractionResult.responseItems}
+                            emptyText="暂无应答项。"
+                          />
+                        </section>
+                      ) : null}
+                      <section>
+                        <h3 className="mb-2 text-sm font-medium">审查项</h3>
+                        <ExtractedItemList
+                          type="review"
+                          items={extractionResult.reviewItems}
+                          emptyText="暂无审查项。"
+                        />
+                      </section>
                     </div>
-                  </div>
-                  <div className="max-h-[calc(100vh-14rem)] space-y-4 overflow-y-auto pr-1">
-                    <section>
-                      <h3 className="mb-2 text-sm font-medium">应答项</h3>
-                      <ExtractedItemList
-                        type="response"
-                        items={extractionResult.responseItems}
-                        emptyText="暂无应答项。"
-                      />
-                    </section>
-                    <section>
-                      <h3 className="mb-2 text-sm font-medium">审查项</h3>
-                      <ExtractedItemList
-                        type="review"
-                        items={extractionResult.reviewItems}
-                        emptyText="暂无审查项。"
-                      />
-                    </section>
-                  </div>
-                </TabsContent>
+                  </TabsContent>
+                ) : null}
               </Tabs>
             </CardContent>
           </Card>
 
-          <div className="min-w-0 space-y-4">
-            <Card className="bg-muted/20 shadow-sm">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">源文件预览</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <PdfViewer
-                  documentId={documentId}
-                  blocks={parsedResult.blocks}
-                  highlightedIssues={focusedIssue ? [focusedIssue] : []}
-                  focusedIssue={focusedIssue}
-                  currentPage={currentPage}
-                  onPageChange={setCurrentPage}
-                  onFocusedIssueConsumed={() => setFocusedBlock(null)}
-                />
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">全文内容</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {markdown ? (
-                  <div className="max-h-[720px] overflow-y-auto rounded-md border bg-background p-5">
-                    <Streamdown
-                      className="prose prose-sm max-w-none dark:prose-invert prose-img:max-w-full prose-img:rounded-md"
-                      plugins={{ cjk }}
-                    >
-                      {markdown}
-                    </Streamdown>
-                  </div>
-                ) : (
-                  <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
-                    暂无全文内容。
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
+          <Card className="min-w-0 bg-muted/20 shadow-sm">
+            <CardContent className="p-4">
+              <Tabs defaultValue="source" className="space-y-4">
+                <TabsList>
+                  <TabsTrigger value="source">源文件预览</TabsTrigger>
+                  <TabsTrigger value="content">全文内容</TabsTrigger>
+                </TabsList>
+                <TabsContent value="source" className="mt-0">
+                  <PdfViewer
+                    documentId={documentId}
+                    blocks={parsedResult.blocks}
+                    highlightedIssues={focusedIssue ? [focusedIssue] : []}
+                    focusedIssue={focusedIssue}
+                    currentPage={currentPage}
+                    onPageChange={setCurrentPage}
+                    onFocusedIssueConsumed={() => setFocusedBlock(null)}
+                  />
+                </TabsContent>
+                <TabsContent value="content" className="mt-0">
+                  {markdown ? (
+                    <div className="max-h-[calc(100vh-10rem)] overflow-y-auto rounded-md border bg-background p-5">
+                      <Streamdown
+                        className="prose prose-sm max-w-none dark:prose-invert prose-img:max-w-full prose-img:rounded-md"
+                        plugins={{ cjk }}
+                      >
+                        {markdown}
+                      </Streamdown>
+                    </div>
+                  ) : (
+                    <div className="rounded-md border border-dashed bg-background p-6 text-sm text-muted-foreground">
+                      暂无全文内容。
+                    </div>
+                  )}
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
         </div>
       ) : null}
     </div>

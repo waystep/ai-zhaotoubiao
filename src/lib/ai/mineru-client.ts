@@ -419,7 +419,7 @@ export class MineruClient {
     // ===== 优先使用 content_list（bbox 信息完整）=====
     if (contentListParsed && contentListParsed.length > 0) {
       console.log("[MinerU] 使用 content_list 提取区块, 数量:", contentListParsed.length);
-      const items = contentListParsed.slice(0, 2000); // 限制2000条
+      const items = contentListParsed;
       let blockIndex = 0;
 
       for (const item of items) {
@@ -512,8 +512,11 @@ export class MineruClient {
     // 提取章节结构
     const sections = this.extractSections(blocks);
 
-    // 计算 totalPages - 使用循环避免栈溢出
+    // 计算 totalPages - 优先使用 middle_json.pdf_info 的真实页数，避免内容区块被过滤时低估页数
     let maxPage = 1;
+    if (middleJsonParsed?.pdf_info && Array.isArray(middleJsonParsed.pdf_info)) {
+      maxPage = Math.max(maxPage, middleJsonParsed.pdf_info.length);
+    }
     for (const block of blocks) {
       if (block.pageNumber > maxPage) {
         maxPage = block.pageNumber;

@@ -46,7 +46,10 @@ export async function POST(
     }
 
     // 检查提取状态
-    if (doc.extractionStatus === "completed") {
+    if (
+      doc.extractionStatus === "completed" &&
+      ((doc.reviewItemsCount || 0) > 0 || (doc.responseItemsCount || 0) > 0)
+    ) {
       return NextResponse.json(
         { error: "文档已完成提取，请查看提取结果" },
         { status: 400 }
