@@ -33,18 +33,6 @@ export async function POST(request: Request, context: RouteContext) {
       return NextResponse.json({ error: "报告已生成" }, { status: 400 });
     }
 
-    // 如果大模型 Provider 需要 API Key，但未配置，则直接失败（避免返回 200 假成功 + 后续 result 为空崩溃）
-    if (!process.env.ALIBABA_CODING_PLAN_API_KEY) {
-      return NextResponse.json(
-        {
-          error: "未配置大模型 API Key",
-          details:
-            "缺少环境变量 ALIBABA_CODING_PLAN_API_KEY，无法调用 alibaba-coding-plan-cn 模型。请在 .env.local 或部署环境中配置后重试。",
-        },
-        { status: 500 }
-      );
-    }
-
     // 更新状态
     await db.update(reviewReports)
       .set({ status: "in_progress", updatedAt: new Date() })
@@ -53,48 +41,122 @@ export async function POST(request: Request, context: RouteContext) {
     // ========== 获取Supervisor Agent ==========
     const supervisor = mastra.getAgent("tender-review-supervisor");
 
-    // 构建审查任务
-    const task = `审查项目 ${report.projectId} 的文档，报告ID: ${reportId}`;
+    // 构建审查任务 - 传递完整的审查上下文
+    const task = `
+请完成以下审查任务：
 
-    // ========== 创建流式响应：直接推送大模型输出 ==========
+**审查基本信息**：
+- 报告ID: ${reportId}
+- 项目ID: ${report.projectId}
+- 待审查文档ID: ${report.documentId}
+- 文档名称: ${report.document.name}
+- 文档类型: ${report.document.docType}
+
+**任务要求**：
+1. 按照你的instructions中定义的流程完成审查
+2. 先检查并提取审查项和响应项（Step 0）
+3. 然后协调各专业审查智能体完成审查
+4. 最终生成完整的审查报告
+
+请开始审查工作。
+`;
+
+    // ========== 创建流式响应：推送SSE格式的事件 ==========
     const stream = new ReadableStream({
       async start(controller) {
         try {
           // 使用stream()获取大模型的实时输出
-          // ========== 添加Memory参数 ==========
-          // thread: 本次审查的对话线程ID（使用reportId）
-          // resource: 审查资源ID（使用projectId，便于Supervisor回忆同一项目的审查历史）
+          // ========== Memory配置 ==========
+          // thread: 本次审查流程的对话线程ID（使用reportId，因为这是完整的一次审查流程）
+          // resource: 报告ID（用于跨对话记忆，同一个报告的多次讨论共享记忆）
           const agentStream = await supervisor.stream(task, {
             memory: {
-              thread: reportId, // 每次审查一个独立thread
-              resource: report.projectId, // 同一项目的审查历史共享
+              thread: reportId, // 完整的审查流程作为一个对话会话
+              resource: reportId, // 同一个报告的多次对话共享记忆
             },
             maxSteps: 30,
-            // 限流：每次委托前等待3秒
-            onDelegationStart: async () => {
-              await new Promise(r => setTimeout(r, 3000));
-              return { proceed: true };
-            },
           });
 
-          // ========== 直接推送大模型的文本输出 ==========
-          // fullStream包含：text-delta, thinking, tool-calls等
+          // ========== 推送SSE格式的事件 ==========
+          // 发送开始事件
+          controller.enqueue(`data: ${JSON.stringify({
+            type: "start",
+            message: "开始审查流程...",
+            reportId,
+            projectId: report.projectId,
+            documentId: report.documentId,
+          })}\n\n`);
+
+          // fullStream包含：text-delta, tool-call, tool-result, agent-delegation等事件
           for await (const chunk of agentStream.fullStream) {
+            // Debug: 记录所有事件类型
+            console.log('Stream事件:', chunk.type, chunk);
+
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const c = chunk as any;
+
             if (chunk.type === "text-delta") {
-              // 文本增量：直接推送给前端显示
-              controller.enqueue(chunk.textDelta);
-            } else if (chunk.type === "thinking") {
-              // 思考过程（如果模型支持）
-              controller.enqueue(`[思考] ${chunk.thinking}\n`);
-            } else if (chunk.type === "step-start") {
-              // 步骤开始标记
-              controller.enqueue(`\n--- ${chunk.stepId} ---\n`);
+              // 文本增量：推送SSE消息
+              const text = c.text || "";
+              if (text) {  // 只在有内容时才推送
+                controller.enqueue(`data: ${JSON.stringify({
+                  type: "text",
+                  content: text,
+                })}\n\n`);
+              }
+            } else if (chunk.type === "tool-call") {
+              // 工具调用：推送工具调用事件
+              const toolName = c.toolName || "unknown";
+              const args = c.args;
+              controller.enqueue(`data: ${JSON.stringify({
+                type: "tool-call",
+                toolName,
+                args,
+                message: `正在调用工具: ${toolName}`,
+              })}\n\n`);
+            } else if (chunk.type === "tool-result") {
+              // 工具结果
+              const toolName = c.toolName || "unknown";
+              controller.enqueue(`data: ${JSON.stringify({
+                type: "tool-result",
+                toolName,
+                result: "工具执行完成",
+              })}\n\n`);
+            } else if ((chunk.type as string).includes("delegation")) {
+              // 子智能体委托：推送委托事件
+              const agentName = c.agentId || c.agentName || "unknown";
+              controller.enqueue(`data: ${JSON.stringify({
+                type: "agent-delegation",
+                agentName,
+                message: `委托给子智能体: ${agentName}`,
+              })}\n\n`);
+            } else if (chunk.type === "step-start" || chunk.type === "step-finish") {
+              // 步骤事件：推送步骤进度
+              const stepName = c.stepName || c.stepId || "";
+              controller.enqueue(`data: ${JSON.stringify({
+                type: "step",
+                stepType: chunk.type,
+                stepName,
+                message: chunk.type === "step-start" ? `开始步骤: ${stepName}` : `完成步骤: ${stepName}`,
+              })}\n\n`);
+            } else {
+              // 其他事件类型也推送（用于调试和完整性）
+              controller.enqueue(`data: ${JSON.stringify({
+                type: "other",
+                eventType: chunk.type,
+                message: `事件: ${chunk.type}`,
+              })}\n\n`);
             }
           }
 
+          // 发送完成事件
+          controller.enqueue(`data: ${JSON.stringify({
+            type: "complete",
+            message: "审查流程完成",
+          })}\n\n`);
+
           // 获取最终结果
-          const result = await agentStream.result.catch(() => null);
-          const finalText = result?.text || "";
+          const finalText = await agentStream.text || "";
 
           // 解析JSON报告（从输出中提取）
           const jsonMatch = finalText.match(/\{[\s\S]*"recommendation"[\s\S]*\}/);
@@ -131,12 +193,12 @@ export async function POST(request: Request, context: RouteContext) {
       },
     });
 
-    // 返回纯文本流（不是SSE格式）
+    // 返回SSE流式响应（Server-Sent Events）
     return new Response(stream, {
       headers: {
-        "Content-Type": "text/plain; charset=utf-8",
-        "Transfer-Encoding": "chunked",
+        "Content-Type": "text/event-stream",  // SSE标准格式
         "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
       },
     });
   } catch (error) {

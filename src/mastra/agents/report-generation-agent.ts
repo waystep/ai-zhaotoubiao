@@ -1,6 +1,8 @@
 // 报告生成智能体 - 汇总审查结果并生成最终报告
 import { Agent } from "@mastra/core/agent";
+import { Memory } from "@mastra/memory";
 import { issueStorageTool } from "../tools/issue-storage-tool";
+import { pgStore, pgVector } from "../storage";
 
 export const reportGenerationAgent = new Agent({
   id: "report-generation-agent",
@@ -110,7 +112,29 @@ export const reportGenerationAgent = new Agent({
 
 请使用 issueStorageTool 存储问题到数据库。
 `,
-  model: "alibaba-coding-plan-cn/qwen3.6-plus",
+  model: "alibaba-coding-plan-cn/glm-5",
+  memory: new Memory({
+    storage: pgStore,
+    vector: pgVector,
+    options: {
+      lastMessages: 20,
+      workingMemory: {
+        enabled: true,
+        scope: "resource",
+        template: `
+审查报告信息：
+- 报告ID：{{reportId}}
+- 项目ID：{{projectId}}
+- 文档ID：{{documentId}}
+- 文档名称：{{documentName}}
+- 审查完成时间：{{completedAt}}
+- 发现问题数：{{issueCount}}
+- 综合评分：{{score}}
+`,
+      },
+      generateTitle: true,
+    },
+  }),
   tools: {
     issueStorageTool,
   },

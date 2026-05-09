@@ -2,6 +2,24 @@
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
 
+// Define output schema separately for type reference
+const checkpointOutputSchema = z.object({
+  checkpoints: z.array(
+    z.object({
+      checkpointId: z.string().describe("检查点唯一标识"),
+      category: z.enum(["qualification", "technical", "scoring", "contract", "compliance", "time", "price"]).describe("检查类别"),
+      focusAreas: z.array(z.string()).describe("关注领域列表"),
+      relevantBlockTypes: z.array(z.string()).describe("相关区块类型"),
+      severityExpectation: z.enum(["critical", "major", "minor", "suggestion"]).describe("预期问题严重程度"),
+      checkDescription: z.string().describe("检查描述"),
+      keywordsToCheck: z.array(z.string()).optional().describe("关键词提示"),
+      regulationReference: z.string().optional().describe("相关法规依据"),
+    })
+  ),
+  totalCheckpoints: z.number().int().positive().describe("检查点总数"),
+  generationMethod: z.enum(["dynamic", "hybrid", "fixed"]).describe("生成方法"),
+});
+
 export const checkpointDesignTool = createTool({
   id: "checkpoint-design",
   description: "从招标/法律文档中动态生成审查检查点清单，不使用固定规则",
@@ -23,32 +41,13 @@ export const checkpointDesignTool = createTool({
       .describe("文档区块列表"),
     analysisContext: z.string().describe("文档分析上下文（由主智能体提供的分析结果）"),
   }),
-  outputSchema: z.object({
-    checkpoints: z.array(
-      z.object({
-        checkpointId: z.string().describe("检查点唯一标识（如：cp_001）"),
-        category: z
-          .enum(["qualification", "technical", "scoring", "contract", "compliance", "time", "price"])
-          .describe("检查类别"),
-        focusAreas: z.array(z.string()).describe("关注领域列表（如：['资质门槛', '业绩要求']）"),
-        relevantBlockTypes: z.array(z.string()).describe("相关区块类型（如：['text', 'table']）"),
-        severityExpectation: z
-          .enum(["critical", "major", "minor", "suggestion"])
-          .describe("预期问题严重程度"),
-        checkDescription: z.string().describe("检查描述（具体检查内容和目标）"),
-        keywordsToCheck: z.array(z.string()).optional().describe("关键词提示（可选）"),
-        regulationReference: z.string().optional().describe("相关法规依据（可选）"),
-      })
-    ),
-    totalCheckpoints: z.number().int().positive().describe("检查点总数"),
-    generationMethod: z.enum(["dynamic", "hybrid", "fixed"]).describe("生成方法（本工具为dynamic）"),
-  }),
+  outputSchema: checkpointOutputSchema,
   execute: async ({ documentId, documentName, docType, documentContent, blocks, analysisContext }) => {
     // AI动态生成检查点（不使用固定规则）
     // 这里提供一个基础实现，实际运行时由主智能体调用并生成
 
     // 根据文档类型和内容特征生成检查点
-    const checkpoints: z.infer<typeof outputSchema>["checkpoints"] = [];
+    const checkpoints: z.infer<typeof checkpointOutputSchema>["checkpoints"] = [];
 
     // 基础检查点框架（实际应由AI动态生成，这里仅作示例）
     const baseCheckpoints = {
@@ -157,10 +156,10 @@ export const checkpointDesignTool = createTool({
           regulationReference: "政府采购法相关规定",
         },
       ],
-    };
+    } as const;
 
     // 从基础框架中提取检查点（实际应由AI根据analysisContext动态生成）
-    checkpoints.push(...(baseCheckpoints[docType] || []));
+    checkpoints.push(...((baseCheckpoints[docType] || []) as unknown as z.infer<typeof checkpointOutputSchema>["checkpoints"]));
 
     // 根据文档内容特征补充检查点（这里仅作示例，实际应由AI生成）
     // 例如：如果发现关键词"指定品牌"，增加针对性检查点
@@ -180,7 +179,7 @@ export const checkpointDesignTool = createTool({
     return {
       checkpoints,
       totalCheckpoints: checkpoints.length,
-      generationMethod: "dynamic",
+      generationMethod: "dynamic" as const,
     };
   },
 });

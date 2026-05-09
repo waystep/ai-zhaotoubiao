@@ -6,7 +6,14 @@
       "Bash(curl -s http://localhost:3002/api/documents)",
       "Bash(npx tsc *)",
       "Bash(curl -X POST http://localhost:3000/api/reports/test-id/generate -H \"Content-Type: application/json\" -v)",
-      "Bash(npx drizzle-kit *)"
+      "Bash(npx drizzle-kit *)",
+      "WebFetch(domain:mastra.ai)",
+      "WebSearch",
+      "Bash(npm install *)",
+      "Bash(npx ai-elements@latest --yes)",
+      "Bash(npx ai-elements@latest)",
+      "Bash(rm -f \"D:/Projects/Looma/src/app/\\(dashboard\\)/projects/[projectId]/reports/chat/page.tsx\")",
+      "Bash(rmdir \"D:/Projects/Looma/src/app/\\(dashboard\\)/projects/[projectId]/reports/chat\")"
     ]
   }
 }

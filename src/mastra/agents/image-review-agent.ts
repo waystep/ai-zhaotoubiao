@@ -1,5 +1,7 @@
 // 图像审查智能体 - 审查图表、印章、签名、技术图纸、资质证书图片
 import { Agent } from "@mastra/core/agent";
+import { Memory } from "@mastra/memory";
+import { pgStore, pgVector } from "../storage";
 
 export const imageReviewAgent = new Agent({
   id: "image-review-agent",
@@ -85,6 +87,25 @@ export const imageReviewAgent = new Agent({
 - 对可疑内容标注为questionable，留待人工复核
 `,
   model: "alibaba-coding-plan-cn/qwen3.6-plus", // 可替换为 openai/gpt-4o 以获得更好的视觉能力
+  memory: new Memory({
+    storage: pgStore,
+    vector: pgVector,
+    options: {
+      lastMessages: 15,
+      workingMemory: {
+        enabled: true,
+        scope: "resource",
+        template: `
+审查上下文：
+- 报告ID：{{reportId}}
+- 项目ID：{{projectId}}
+- 文档ID：{{documentId}}
+- 图像审查进度：{{imageProgress}}
+`,
+      },
+      generateTitle: true,
+    },
+  }),
   tools: {
     // 将在后续添加：imageAnalysisTool, ocrValidationTool
   },

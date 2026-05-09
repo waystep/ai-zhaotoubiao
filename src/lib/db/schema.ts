@@ -72,6 +72,14 @@ export const parseStatusEnum = pgEnum("parse_status", [
   "failed",        // 解析失败
 ]);
 
+// 提取状态
+export const extractionStatusEnum = pgEnum("extraction_status", [
+  "pending",       // 待提取
+  "processing",    // 提取中
+  "completed",     // 已完成
+  "failed",        // 提取失败
+]);
+
 // 投标状态
 export const bidStatusEnum = pgEnum("bid_status", [
   "draft",         // 草稿
@@ -239,6 +247,15 @@ export const documents = pgTable("documents", {
   mineruTaskId: varchar("mineru_task_id", { length: 100 }),
   taskProgress: integer("task_progress").default(0),
   taskSubmittedAt: timestamp("task_submitted_at"),
+  // 提取状态
+  extractionStatus: extractionStatusEnum("extraction_status").default("pending"),
+  extractionError: text("extraction_error"),
+  extractedAt: timestamp("extracted_at"),
+  extractionTaskId: varchar("extraction_task_id", { length: 100 }),
+  extractionProgress: integer("extraction_progress").default(0),
+  reviewItemsCount: integer("review_items_count").default(0),
+  responseItemsCount: integer("response_items_count").default(0),
+  autoExtract: boolean("auto_extract").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -336,6 +353,118 @@ export const reviewIssues = pgTable("review_issues", {
   resolvedBy: uuid("resolved_by").references(() => users.id),
   resolvedAt: timestamp("resolved_at"),
   createdAt: timestamp("created_at").defaultNow(),
+});
+
+// ==================== 审查项与响应项 ====================
+
+// 审查项表 - 存储从招标文件和法律文件中提取的强制性要求条款
+export const reviewItems = pgTable("review_items", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => tenderProjects.id, { onDelete: "cascade" }),
+  documentId: uuid("document_id")
+    .notNull()
+    .references(() => documents.id, { onDelete: "cascade" }),
+  sourceBlockId: uuid("source_block_id")
+    .references(() => documentBlocks.id, { onDelete: "set null" }),
+
+  // 审查项基本信息（itemType使用文本类型，支持灵活扩展）
+  itemType: varchar("item_type", { length: 100 }).notNull(),  // 审查项类型（如：资质要求、技术要求等）
+  itemNo: varchar("item_no", { length: 100 }),                // 条款编号（如：第三章第5条）
+  title: varchar("title", { length: 500 }).notNull(),         // 审查项标题
+  description: text("description").notNull(),                 // 详细描述
+
+  // 原文定位信息
+  location: jsonb("location").notNull().default({
+    pageNumber: 0,
+    blockIndex: 0,
+    bbox: { x0: 0, y0: 0, x1: 0, y1: 0 },
+    textSnippet: "",
+    highlightText: "",
+  }),
+
+  // 审查要求详情
+  requirements: jsonb("requirements").default({
+    mandatory: true,               // 是否强制性要求
+    threshold: null,               // 门槛值（如：资质等级、金额）
+    criteria: [],                  // 具体标准列表
+    proofRequired: [],             // 需提供的证明材料
+  }),
+
+  // 不满足的后果和法律依据
+  consequence: varchar("consequence", { length: 100 }),        // 不满足后果（废标/违规/违法/扣分等）
+  legalReference: text("legal_reference"),                     // 法律法规依据
+
+  // 提取元数据
+  extractionStatus: extractionStatusEnum("extraction_status").default("completed"),
+  extractedBy: varchar("extracted_by", { length: 100 }),       // 提取智能体来源
+  extractionConfidence: decimal("extraction_confidence", { precision: 5, scale: 2 }), // 提取置信度
+  extractionMetadata: jsonb("extraction_metadata").default({}), // 提取过程元数据
+
+  // 验证状态
+  isVerified: boolean("is_verified").default(false),           // 是否人工验证
+  verifiedBy: uuid("verified_by").references(() => users.id),
+  verifiedAt: timestamp("verified_at"),
+
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// 响应项表 - 存储从招标文件中提取的要求投标人明确说明的内容
+export const responseItems = pgTable("response_items", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => tenderProjects.id, { onDelete: "cascade" }),
+  documentId: uuid("document_id")
+    .notNull()
+    .references(() => documents.id, { onDelete: "cascade" }),
+  sourceBlockId: uuid("source_block_id")
+    .references(() => documentBlocks.id, { onDelete: "set null" }),
+
+  // 响应项基本信息（responseType使用文本类型，支持灵活扩展）
+  responseType: varchar("response_type", { length: 100 }).notNull(), // 响应类型（如：技术方案、人员配置等）
+  itemNo: varchar("item_no", { length: 100 }),                       // 条款编号
+  title: varchar("title", { length: 500 }).notNull(),
+  description: text("description").notNull(),
+
+  // 原文定位信息
+  location: jsonb("location").notNull().default({
+    pageNumber: 0,
+    blockIndex: 0,
+    bbox: { x0: 0, y0: 0, x1: 0, y1: 0 },
+    textSnippet: "",
+    highlightText: "",
+  }),
+
+  // 响应内容详情
+  responseRequirements: jsonb("response_requirements").default({
+    requiredFormat: null,          // 要求格式（文字说明/表格/图纸/证明材料）
+    requiredContent: [],           // 要求内容列表
+    minLength: null,               // 最小字数要求
+    attachments: [],               // 需要的附件列表
+  }),
+
+  // 评分信息（如果影响评分）
+  scoringInfo: jsonb("scoring_info").default({
+    weight: null,                  // 权重分值
+    scoringCriteria: null,         // 评分标准
+  }),
+
+  // 提取元数据
+  extractionStatus: extractionStatusEnum("extraction_status").default("completed"),
+  extractedBy: varchar("extracted_by", { length: 100 }),
+  extractionConfidence: decimal("extraction_confidence", { precision: 5, scale: 2 }),
+  extractionMetadata: jsonb("extraction_metadata").default({}),
+
+  // 验证状态
+  isVerified: boolean("is_verified").default(false),
+  verifiedBy: uuid("verified_by").references(() => users.id),
+  verifiedAt: timestamp("verified_at"),
+
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 // ==================== 投标记录 ====================
@@ -458,6 +587,8 @@ export const tenderProjectsRelations = relations(tenderProjects, ({ one, many })
   documents: many(documents),
   reviewReports: many(reviewReports),
   bidSubmissions: many(bidSubmissions),
+  reviewItems: many(reviewItems),
+  responseItems: many(responseItems),
 }));
 
 export const documentsRelations = relations(documents, ({ one, many }) => ({
@@ -471,6 +602,8 @@ export const documentsRelations = relations(documents, ({ one, many }) => ({
   }),
   parsedResult: one(documentParsedResults),
   reviewReports: many(reviewReports),
+  reviewItems: many(reviewItems),
+  responseItems: many(responseItems),
 }));
 
 export const documentParsedResultsRelations = relations(
@@ -516,6 +649,44 @@ export const reviewIssuesRelations = relations(reviewIssues, ({ one }) => ({
   block: one(documentBlocks, {
     fields: [reviewIssues.blockId],
     references: [documentBlocks.id],
+  }),
+}));
+
+export const reviewItemsRelations = relations(reviewItems, ({ one }) => ({
+  project: one(tenderProjects, {
+    fields: [reviewItems.projectId],
+    references: [tenderProjects.id],
+  }),
+  document: one(documents, {
+    fields: [reviewItems.documentId],
+    references: [documents.id],
+  }),
+  sourceBlock: one(documentBlocks, {
+    fields: [reviewItems.sourceBlockId],
+    references: [documentBlocks.id],
+  }),
+  verifier: one(users, {
+    fields: [reviewItems.verifiedBy],
+    references: [users.id],
+  }),
+}));
+
+export const responseItemsRelations = relations(responseItems, ({ one }) => ({
+  project: one(tenderProjects, {
+    fields: [responseItems.projectId],
+    references: [tenderProjects.id],
+  }),
+  document: one(documents, {
+    fields: [responseItems.documentId],
+    references: [documents.id],
+  }),
+  sourceBlock: one(documentBlocks, {
+    fields: [responseItems.sourceBlockId],
+    references: [documentBlocks.id],
+  }),
+  verifier: one(users, {
+    fields: [responseItems.verifiedBy],
+    references: [users.id],
   }),
 }));
 

@@ -12,6 +12,7 @@ import { contentReviewAgent } from "./agents/content-review-agent";
 import { tenderResponseAgent } from "./agents/tender-response-agent";
 import { reportGenerationAgent } from "./agents/report-generation-agent";
 import { tenderReviewSupervisor } from "./agents/tender-review-supervisor";
+import { extractionAgent } from "./agents/extraction-agent";
 
 // ========== Memory 配置（共享给所有Agent）==========
 const defaultMemory = new Memory({
@@ -34,10 +35,12 @@ export const mastra = new Mastra({
   // ========== Instance-level Storage ==========
   // 所有Agent共享此storage
   storage: pgStore,
-
   agents: {
     // Supervisor Agent - 总协调者（带Memory）
     "tender-review-supervisor": tenderReviewSupervisor,
+
+    // Extraction Agent - 文档提取专家（新增）
+    "extraction-agent": extractionAgent,
 
     // 专业审查智能体（子Agent）
     "orchestration-agent": orchestrationAgent,

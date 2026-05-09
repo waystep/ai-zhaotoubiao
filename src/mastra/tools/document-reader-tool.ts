@@ -76,7 +76,7 @@ export const documentReaderTool = createTool({
         id: doc.id,
         name: doc.name,
         docType: doc.docType,
-        parseStatus: doc.parseStatus,
+        parseStatus: doc.parseStatus || "pending",
         totalPages: doc.parsedResult?.totalPages || 0,
         blocks:
           doc.parsedResult?.blocks.map((b) => ({
@@ -85,7 +85,7 @@ export const documentReaderTool = createTool({
             blockIndex: b.blockIndex,
             blockType: b.blockType || undefined,
             content: b.content,
-            bbox: b.bbox as any, // bbox存储为jsonb，转换为对象
+            bbox: (b.bbox as { x0: number; y0: number; x1: number; y1: number }) || undefined,
           })) || [],
       }));
 

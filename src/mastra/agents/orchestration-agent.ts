@@ -1,7 +1,9 @@
 // 主协调智能体 - 分析招标/法律文档并动态设计审查检查点
 import { Agent } from "@mastra/core/agent";
+import { Memory } from "@mastra/memory";
 import { documentReaderTool } from "../tools/document-reader-tool";
 import { checkpointDesignTool } from "../tools/checkpoint-design-tool";
+import { pgStore, pgVector } from "../storage";
 
 export const orchestrationAgent = new Agent({
   id: "orchestration-agent",
@@ -64,7 +66,27 @@ export const orchestrationAgent = new Agent({
 - 汇总各代理结果，进行综合评估
 - 确保审查覆盖所有关键领域，不遗漏重要问题
 `,
-  model: "alibaba-coding-plan-cn/qwen3.6-plus",
+  model: "alibaba-coding-plan-cn/glm-5",
+  memory: new Memory({
+    storage: pgStore,
+    vector: pgVector,
+    options: {
+      lastMessages: 15,
+      workingMemory: {
+        enabled: true,
+        scope: "resource",  // 使用resource级别的Memory共享
+        template: `
+审查上下文：
+- 报告ID：{{reportId}}
+- 项目ID：{{projectId}}
+- 文档ID：{{documentId}}
+- 文档类型：{{docType}}
+- 文档名称：{{documentName}}
+`,
+      },
+      generateTitle: true,
+    },
+  }),
   tools: {
     documentReaderTool,
     checkpointDesignTool,

@@ -1,5 +1,8 @@
 // 内容审查智能体 - 审查文本和表格blocks的合规性
 import { Agent } from "@mastra/core/agent";
+import { Memory } from "@mastra/memory";
+import { getReviewItemsTool } from "../tools/get-review-items-tool";
+import { pgStore, pgVector } from "../storage";
 
 export const contentReviewAgent = new Agent({
   id: "content-review-agent",
@@ -97,7 +100,28 @@ export const contentReviewAgent = new Agent({
 请使用 semanticAnalysisTool 和 complianceCheckTool 进行深度审查。
 `,
   model: "alibaba-coding-plan-cn/qwen3.6-plus",
+  memory: new Memory({
+    storage: pgStore,
+    vector: pgVector,
+    options: {
+      lastMessages: 15,
+      workingMemory: {
+        enabled: true,
+        scope: "resource",
+        template: `
+审查上下文：
+- 报告ID：{{reportId}}
+- 项目ID：{{projectId}}
+- 文档ID：{{documentId}}
+- 文档类型：{{docType}}
+- 当前审查页码：{{currentPage}}
+`,
+      },
+      generateTitle: true,
+    },
+  }),
   tools: {
+    getReviewItemsTool, // 获取审查项作为审查依据
     // 将在后续添加：semanticAnalysisTool, complianceCheckTool, biasDetectionTool
   },
 });

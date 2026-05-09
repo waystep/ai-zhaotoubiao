@@ -39,7 +39,7 @@ export default function NewReportPage() {
 
   // 审查流程状态
   const [reviewStep, setReviewStep] = useState<ReviewStep>("select");
-  const [reviewProgress, setReviewProgress] = useState("");
+  const [messages, setMessages] = useState<{id: number, type: string, content: string}[]>([]);
   const [reportId, setReportId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -88,10 +88,6 @@ export default function NewReportPage() {
       return;
     }
 
-    setError(null);
-    setReviewStep("creating");
-    setReviewProgress("正在创建审查任务...");
-
     try {
       // 步骤1: 创建审查报告
       const createResponse = await fetch(`/api/projects/${projectId}/reports`, {
@@ -107,36 +103,9 @@ export default function NewReportPage() {
 
       const createData = await createResponse.json();
       const newReportId = createData.report.id;
-      setReportId(newReportId);
-      setReviewProgress("AI 正在规划审查方案...");
 
-      // 步骤2: 开始 AI 审查
-      setReviewStep("analyzing");
-      setReviewProgress("AI 正在分析文档内容...");
-
-      const generateResponse = await fetch(`/api/reports/${newReportId}/generate`, {
-        method: "POST",
-      });
-
-      if (!generateResponse.ok) {
-        const err = await generateResponse.json();
-        throw new Error(err.error || "AI 审查失败");
-      }
-
-      const generateData = await generateResponse.json();
-      setReviewProgress("审查完成！");
-      setReviewStep("completed");
-
-      toast({
-        title: "审查完成",
-        description: `AI 评分: ${generateData.report?.aiScore || '--'} 分`,
-      });
-
-      // 3秒后跳转到报告详情
-      setTimeout(() => {
-        router.push(`/reports/${newReportId}`);
-      }, 2000);
-
+      // 步骤2: 跳转到对话页面（创建会话并绑定report）
+      router.push(`/reports/${newReportId}/chat`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "审查过程中发生错误");
       setReviewStep("error");
@@ -325,19 +294,48 @@ export default function NewReportPage() {
             </>
           )}
 
-          {/* 步骤2/3: 审查过程 */}
+          {/* 步骤2/3: 审查过程 - ChatGPT风格消息列表 */}
           {(reviewStep === "creating" || reviewStep === "analyzing") && (
-            <div className="py-8 space-y-4">
-              <div className="flex items-center justify-center">
-                <Loader2 className="h-12 w-12 animate-spin text-primary" />
+            <div className="py-6">
+              <div className="flex items-center justify-center mb-4">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
               </div>
-              <div className="text-center">
-                <p className="font-medium">{reviewProgress}</p>
-                <p className="text-sm text-muted-foreground mt-2">
-                  {reviewStep === "creating" && "准备审查环境..."}
-                  {reviewStep === "analyzing" && "使用深度思考能力分析文档合规性..."}
-                </p>
-              </div>
+
+              {/* 真正的消息列表渲染 */}
+              {messages.length > 0 && (
+                <div className="space-y-3 max-h-[500px] overflow-y-auto bg-gray-50 dark:bg-gray-900 rounded-lg p-4">
+                  {messages.map((msg) => (
+                    <div
+                      key={msg.id}
+                      className={`p-3 rounded-lg ${
+                        msg.type === 'text'
+                          ? 'bg-white dark:bg-gray-800'
+                          : msg.type === 'system' || msg.type === 'start' || msg.type === 'complete'
+                          ? 'bg-blue-50 dark:bg-blue-900/30'
+                          : msg.type === 'tool' || msg.type === 'tool-result'
+                          ? 'bg-gray-100 dark:bg-gray-700'
+                          : msg.type === 'delegation'
+                          ? 'bg-purple-50 dark:bg-purple-900/30'
+                          : 'bg-gray-100 dark:bg-gray-800'
+                      }`}
+                    >
+                      <div className={`${
+                        msg.type === 'text'
+                          ? 'text-gray-900 dark:text-gray-100 whitespace-pre-wrap'
+                          : msg.type === 'system' || msg.type === 'start' || msg.type === 'complete'
+                          ? 'text-blue-600 dark:text-blue-400 text-sm'
+                          : msg.type === 'tool'
+                          ? 'text-gray-600 dark:text-gray-400 text-sm'
+                          : msg.type === 'delegation'
+                          ? 'text-purple-600 dark:text-purple-400 text-sm'
+                          : 'text-gray-600 dark:text-gray-400 text-sm'
+                      }`}>
+                        {msg.content}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {/* 进度指示器 */}
               <div className="flex justify-center gap-2 mt-6">
