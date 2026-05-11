@@ -60,6 +60,106 @@ PostgreSQL（业务数据 + Mastra Memory/向量存储配置）
 | `src/lib/ui/*` | 展示层格式化与中文标签映射 |
 | `src/mastra/*` | Mastra 实例、各 Agent、存储 |
 
+### 3.3 架构图（Mermaid）
+
+下列图表用于 **评审、交接与改架构时的对照**；若流程或外部依赖有变，请同步改图。
+
+> 提示：若本地预览不显示图，请使用支持 Mermaid 的预览插件，或将代码块复制到 [Mermaid Live Editor](https://mermaid.live)。
+
+#### 系统上下文（谁与谁交互）
+
+```mermaid
+flowchart TB
+  subgraph Clients["终端"]
+    B[浏览器]
+  end
+  subgraph App["本仓库部署"]
+    N[Next.js：页面 + /api Route Handlers]
+  end
+  subgraph Data["持久化"]
+    PG[(PostgreSQL\n业务表 + Mastra Memory/向量)]
+  end
+  subgraph External["外部依赖"]
+    MU[MinerU / 解析服务]
+    LLM[大模型 Provider\n如阿里云 Coding Plan]
+    FS[对象存储或本地 uploads\n按实现而定]
+  end
+
+  B -->|HTTPS + Cookie| N
+  N --> PG
+  N --> MU
+  N --> LLM
+  N --> FS
+```
+
+#### 核心领域关系（简化 ER）
+
+详细字段见 `schema.ts`；此处只表达 **审查链路** 上的主外键关系。
+
+```mermaid
+erDiagram
+  TenderProject ||--o{ Document : "project_id"
+  Document ||--o| DocumentParsedResult : "parse 结果"
+  DocumentParsedResult ||--o{ DocumentBlock : "blocks + bbox"
+  TenderProject ||--o{ ReviewReport : "project_id"
+  Document ||--o{ ReviewReport : "document_id"
+  ReviewReport ||--o{ ReviewIssue : "report_id"
+```
+
+#### 报告生成时序（流式 + 落库）
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as 用户
+  participant FE as 前端
+  participant API as POST /api/reports/id/generate
+  participant DB as PostgreSQL
+  participant SV as Mastra Supervisor
+  participant LLM as LLM
+
+  U->>FE: 开始审查
+  FE->>API: POST
+  API->>DB: reviewReports.status = in_progress
+  API->>SV: stream(task, memory)
+  loop fullStream
+    SV->>LLM: 推理/工具
+    LLM-->>SV: token/chunk
+    SV-->>API: text-delta 等
+    API-->>FE: text/plain 分块
+  end
+  API->>SV: await result
+  alt 成功且解析出 JSON
+    API->>DB: completed + summary/score/...
+  else 失败或缺 Key
+    API->>DB: 回滚 pending 或标记失败（以代码为准）
+  end
+```
+
+#### 报告详情「问题定位工作台」数据流
+
+```mermaid
+flowchart LR
+  subgraph UI["浏览器"]
+    L[IssueLocationViewer\n列表/筛选/hover]
+    P[PdfViewer\nreact-pdf + 叠层]
+  end
+  subgraph API["/api"]
+    R["/api/reports/:id"]
+    B["/api/documents/:id/blocks"]
+    F["/api/documents/:id/file"]
+  end
+  DB[(PostgreSQL)]
+
+  R --> DB
+  B --> DB
+  F --> DB
+  L -->|issues 来自 report| R
+  P -->|blocks + bbox| B
+  P -->|PDF 字节| F
+  L <-->|hover 同步 location\n一次性 focusedIssue 滚动| P
+```
+
 ---
 
 ## 4. 核心领域模型（摘要）
@@ -201,5 +301,17 @@ Worker / 定时任务：见 `worker.ts`、`/api/cron/*`。
 
 ## 13. 文档维护
 
-- 架构或表结构变更时，请同步更新本文件 **第 4、5、6 节**。
+- 架构或表结构变更时，请同步更新本文件 **第 3.3（图）、4、5、6 节**。
 - 新增重要 API 时，在 **第 6 节** 补充一行说明即可，避免与代码重复冗长描述。
+- **架构图**：优先改 `3.3` 的 Mermaid；若需对外汇报，可从 Mermaid 导出 PNG/SVG 放入 `docs/images/`（可选，按需新增目录）。
+
+### 还可补充的图（按需）
+
+| 图类型 | 适用场景 |
+|--------|----------|
+| **部署图**（单机 / K8s / 反向代理 + 环境） | 运维、上生产前评审 |
+| **解析管道**（上传 → MinerU → 回调/轮询 → blocks） | 排查解析失败、进度不准 |
+| **权限模型**（org / project / role） | 若后续引入细粒度角色 |
+| **C4 Container 更细一层**（Mastra、Worker、Cron 独立进程） | `worker.ts`、定时任务与 Web 分工变复杂时 |
+
+当前以 **3.3 四张图** 为基线即可满足多数代码评审；更细的图建议在架构变复杂时再画，避免文档与代码双重维护成本过高。
