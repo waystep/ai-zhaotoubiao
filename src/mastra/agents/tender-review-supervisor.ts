@@ -2,8 +2,6 @@
 import { Agent } from "@mastra/core/agent";
 import { Memory } from "@mastra/memory";
 import { extractionAgent } from "./extraction-agent";
-import { contentReviewAgent } from "./content-review-agent";
-import { imageReviewAgent } from "./image-review-agent";
 import { reportGenerationAgent } from "./report-generation-agent";
 import { documentReaderTool } from "../tools/document-reader-tool";
 import { getReviewItemsTool } from "../tools/get-review-items-tool";

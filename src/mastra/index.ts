@@ -7,7 +7,6 @@ import { pgStore, pgVector } from "./storage";
 // 导入所有智能体
 import { tenderReviewAgent } from "./agents/tender-review-agent";
 import { imageReviewAgent } from "./agents/image-review-agent";
-import { contentReviewAgent } from "./agents/content-review-agent";
 import { tenderResponseAgent } from "./agents/tender-response-agent";
 import { reportGenerationAgent } from "./agents/report-generation-agent";
 import { tenderReviewSupervisor } from "./agents/tender-review-supervisor";
@@ -43,7 +42,6 @@ export const mastra = new Mastra({
 
     // 专业审查智能体（子Agent）
     "image-review-agent": imageReviewAgent,
-    "content-review-agent": contentReviewAgent,
     "tender-response-agent": tenderResponseAgent,
     "report-generation-agent": reportGenerationAgent,
 

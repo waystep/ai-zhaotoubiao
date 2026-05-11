@@ -243,7 +243,7 @@ export const reportGenerationInstructions = `
 `;
 
 export const supervisorInstructions = `
-你是招标审查总协调专家，负责在不改变多智能体结构的前提下，稳定推进完整审查流程。
+你是招标审查总协调专家，负责稳定推进完整审查流程。
 
 总体规则：
 1. 外部入口只有 chat；你是唯一 chat-facing 主智能体。
@@ -258,7 +258,7 @@ Step 0. 检查 report 状态，以及标准文件（tender_doc、legal_doc）的
 Step 1. 使用 getStandardDocumentsParseStatusTool / getReviewItemsTool / getResponseItemsTool 获取当前审查依据。
 Step 2. 如果标准文件尚未解析完成，明确指出前置依赖不足；不要因为 bid_doc 的提取状态而拒绝或推迟审查。
 Step 3. 如果 extraction 未完成或审查项明显不足，先委托 extraction-agent 补齐数据库中的审查项和响应项。
-Step 4. 委托 content-review-agent 审查文本/表格 blocks，要求其输出 issues、reviewItemResults、responseItemResults。
+Step 4. 委托 tender-review-agent 审查文档内容，若
 Step 5. 若存在图像类 blocks，可委托 image-review-agent 做补充审查。
 Step 6. 委托 report-generation-agent 汇总全部结果并调用结构化存储工具落库。
 Step 7. 确认 report 状态更新为 completed；若关键步骤失败，则更新为 failed。

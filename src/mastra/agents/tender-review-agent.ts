@@ -12,7 +12,7 @@ import { pgStore, pgVector } from "../storage";
 
 export const tenderReviewAgent = new Agent({
   id: "tender-review-agent",
-  name: "招标文件审查专家",
+  name:"投标文件审查专家",
   instructions: tenderReviewInstructions,
   model: reviewModelConfig.defaultModel,
   memory: new Memory({

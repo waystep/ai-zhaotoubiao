@@ -41,7 +41,7 @@ const issueSchema = z.object({
 
 const reviewItemResultSchema = z.object({
   reviewItemId: z.string(),
-  status: z.enum(["pass", "fail", "needs_manual_review", "not_applicable"]),
+  status: z.enum(["pass", "fail", "needs_manual_review"]),
   reason: z.string(),
   evidenceBlockIds: z.array(z.string()).default([]),
   confidence: z.number().min(0).max(1).optional(),
@@ -50,7 +50,7 @@ const reviewItemResultSchema = z.object({
 
 const responseItemResultSchema = z.object({
   responseItemId: z.string(),
-  status: z.enum(["answered", "partially_answered", "unanswered", "not_applicable", "needs_manual_review"]),
+  status: z.enum(["answered", "partially_answered", "unanswered", "not_applicable"]),
   reason: z.string(),
   evidenceBlockIds: z.array(z.string()).default([]),
   confidence: z.number().min(0).max(1).optional(),
@@ -85,7 +85,7 @@ async function resolveReviewItemIds(projectId: string, inputIds: string[]): Prom
   // 获取项目所有审查项
   const items = await db.query.reviewItems.findMany({
     where: eq(reviewItems.projectId, projectId),
-    columns: { id: true, checkpointName: true },
+    columns: { id: true },
   });
 
   for (const inputId of inputIds) {
@@ -116,7 +116,7 @@ async function resolveResponseItemIds(projectId: string, inputIds: string[]): Pr
   // 获取项目所有响应项
   const items = await db.query.responseItems.findMany({
     where: eq(responseItems.projectId, projectId),
-    columns: { id: true, itemName: true },
+    columns: { id: true },
   });
 
   for (const inputId of inputIds) {
@@ -279,7 +279,6 @@ export const structuredReviewStorageTool = createTool({
         pass: validReviewResults.filter((item) => item.status === "pass").length,
         fail: validReviewResults.filter((item) => item.status === "fail").length,
         needsManualReview: validReviewResults.filter((item) => item.status === "needs_manual_review").length,
-        notApplicable: validReviewResults.filter((item) => item.status === "not_applicable").length,
       };
 
       const responseCoverageSummary = {
