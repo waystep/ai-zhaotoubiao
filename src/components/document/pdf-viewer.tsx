@@ -356,7 +356,12 @@ export function PdfViewer({
         progScrollTimerRef.current = null;
       }, 700);
 
-      container.scrollTo({ top: Math.max(0, desired), behavior: "smooth" });
+      // 先确保页面在视口中
+      pageEl.scrollIntoView({ behavior: "smooth", block: "start" });
+      // 再精确滚动到 bbox 位置
+      setTimeout(() => {
+        container.scrollTo({ top: Math.max(0, desired), behavior: "smooth" });
+      }, 100);
     },
     // scrollToPage 是稳定的；blocksByPage / highlightedIssues / overlaySize 等随状态变化
     // eslint-disable-next-line react-hooks/exhaustive-deps
