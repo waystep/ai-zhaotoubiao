@@ -737,7 +737,7 @@ export default function DocumentDetailPage() {
                           >
                             <div className="mb-2 flex items-center gap-2">
                               <FileImage className="h-4 w-4 text-muted-foreground" />
-                              <Badge variant="outline">P.{image.pageNumber}</Badge>
+                              <Badge variant="outline">第{image.pageNumber}页</Badge>
                               {image.status === "pending" ? (
                                 <Badge variant="secondary" className="text-xs">待分析</Badge>
                               ) : image.status === "processing" ? (
@@ -898,7 +898,7 @@ export default function DocumentDetailPage() {
                                 </Badge>
                               )}
                               {item.itemNo && <Badge variant="outline">{item.itemNo}</Badge>}
-                              {pageNumber ? <Badge variant="outline">P.{pageNumber}</Badge> : null}
+                              {pageNumber ? <Badge variant="outline">第{pageNumber}页</Badge> : null}
                               {blockIndex != null ? (
                                 <span className="text-xs text-muted-foreground">#{blockIndex}</span>
                               ) : null}
