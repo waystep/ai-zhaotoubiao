@@ -662,19 +662,29 @@ export default function DocumentDetailPage() {
                       </div>
                     ) : (
                       <div className="max-h-[calc(100vh-14rem)] space-y-2 overflow-y-auto pr-1">
-                        {imageRiskResult.images.map((image) => (
+                        {imageRiskResult.images.map((image) => {
+                          // 通过 imagePath 匹配 blocks 获取精确 bbox
+                          const imgBlock = parsedResult?.blocks?.find(
+                            (b: any) => b.imagePath === image.imagePath
+                          );
+                          const imgPage = imgBlock?.pageNumber ?? image.pageNumber;
+                          const imgIdx = imgBlock?.blockIndex ?? -1;
+                          const imgBbox = imgBlock?.bbox ?? undefined;
+
+                          return (
                           <button
                             key={image.id}
                             type="button"
                             className="w-full rounded-md border bg-background p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted/40"
                             onClick={() => {
-                              setCurrentPage(image.pageNumber);
+                              setCurrentPage(imgPage);
                               setFocusedIssue({
-                                pageNumber: image.pageNumber,
-                                blockIndex: -1,
+                                pageNumber: imgPage,
+                                blockIndex: imgIdx,
+                                bbox: imgBbox,
                               });
                             }}
-                            title="点击定位到PDF对应页面"
+                            title={imgBlock ? "点击定位到PDF对应图片位置" : "点击定位到PDF对应页面"}
                           >
                             <div className="mb-2 flex items-center gap-2">
                               <FileImage className="h-4 w-4 text-muted-foreground" />
@@ -726,7 +736,8 @@ export default function DocumentDetailPage() {
                               {image.imagePath}
                             </div>
                           </button>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </TabsContent>
