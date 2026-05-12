@@ -58,20 +58,6 @@ interface PdfViewerProps {
   onPageChange?: (pageNumber: number) => void;
 }
 
-function inferRefDimensions(
-  boxes: Array<{ x0: number; y0: number; x1: number; y1: number }>,
-  fallbackW: number,
-  fallbackH: number
-): { refW: number; refH: number } {
-  let refW = Math.max(fallbackW, 1);
-  let refH = Math.max(fallbackH, 1);
-  for (const b of boxes) {
-    refW = Math.max(refW, b.x1, b.x0);
-    refH = Math.max(refH, b.y1, b.y0);
-  }
-  return { refW, refH };
-}
-
 function mapBoxToOverlay(
   box: { x0: number; y0: number; x1: number; y1: number },
   refW: number,
@@ -80,7 +66,7 @@ function mapBoxToOverlay(
   overlayH: number,
   inset: number = 0
 ) {
-  // PDF 坐标系原点在左下角(y↑)，CSS 原点在左上角(y↓)，需翻转 Y 轴
+  // PDF 原点左下角(y↑)，CSS 原点左上角(y↓)，需翻转 Y
   const left = (box.x0 / refW) * overlayW - inset;
   const top = ((refH - box.y1) / refH) * overlayH - inset;
   const width = ((box.x1 - box.x0) / refW) * overlayW + inset * 2;
@@ -321,18 +307,8 @@ export function PdfViewer({
         return;
       }
 
-      const boxesForRef = [
-        ...pageBlocks.map((b) => b.bbox),
-        ...highlightedIssues
-          .filter((i) => i.pageNumber === issue.pageNumber)
-          .flatMap((i) => {
-            const b = boxForIssue(i, pageBlocks);
-            return b ? [b] : [];
-          }),
-        box,
-      ];
-
-      const { refW, refH } = inferRefDimensions(boxesForRef, pageBaseDims.w, pageBaseDims.h);
+      const refW = pageBaseDims.w;
+      const refH = pageBaseDims.h;
       const mapped = mapBoxToOverlay(box, refW, refH, overlaySize.w, overlaySize.h);
 
       // 目标：将 bbox 垂直居中到容器可视区域偏上（更符合阅读）
@@ -476,18 +452,8 @@ export function PdfViewer({
     if (allIssues.length === 0) return null;
 
     const pageBlocks = blocksByPage.get(pageNum) ?? [];
-    const boxesForRef = [
-      ...pageBlocks.map((b) => b.bbox),
-      ...allIssues.flatMap((i) => {
-        const b = boxForIssue(i, pageBlocks);
-        return b ? [b] : [];
-      }),
-    ];
-    const { refW, refH } = inferRefDimensions(
-      boxesForRef,
-      pageBaseDims!.w,
-      pageBaseDims!.h
-    );
+    const refW = pageBaseDims!.w;
+    const refH = pageBaseDims!.h;
 
     return (
       <>
