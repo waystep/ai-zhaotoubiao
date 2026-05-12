@@ -243,6 +243,7 @@ export default function DocumentDetailPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [focusedBlock, setFocusedBlock] = useState<ParsedBlock | null>(null);
   const [itemFocus, setItemFocus] = useState<IssueLocation | null>(null);
+  const [activePopover, setActivePopover] = useState<{ title: string; desc: string; consequence?: string; legalRef?: string; page: number; blockIdx: number } | null>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasFetchedRef = useRef(false);
 
@@ -878,6 +879,14 @@ export default function DocumentDetailPage() {
                                 bbox: locBbox || undefined,
                                 textSnippet: item.title,
                               });
+                              setActivePopover({
+                                title: item.title,
+                                desc: item.description,
+                                consequence: item.consequence || undefined,
+                                legalRef: item.legalReference || undefined,
+                                page: locPage,
+                                blockIdx: locIdx,
+                              });
                             }}
                             title={
                               hasExactBlock
@@ -936,9 +945,10 @@ export default function DocumentDetailPage() {
                 documentId={documentId}
                 blocks={parsedResult.blocks}
                 focusedIssue={focusedIssue}
+                activePopover={activePopover}
                 currentPage={currentPage}
                 onPageChange={setCurrentPage}
-                onFocusedIssueConsumed={() => { setFocusedBlock(null); setItemFocus(null); }}
+                onFocusedIssueConsumed={() => { setFocusedBlock(null); setItemFocus(null); setActivePopover(null); }}
               />
             </CardContent>
           </Card>
