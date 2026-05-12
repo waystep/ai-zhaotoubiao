@@ -9,6 +9,13 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -218,28 +225,31 @@ export default function ExtractionItemsPage() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <select
-          className="h-9 w-48 rounded-md border border-input bg-background px-3 text-sm"
-          value={filterDocId}
-          onChange={(e) => setFilterDocId(e.target.value)}
-        >
-          <option value="">全部文档</option>
-          {docs.map((d) => (
-            <option key={d.id} value={d.id}>{d.name}</option>
-          ))}
-        </select>
-        <select
-          className="h-9 w-40 rounded-md border border-input bg-background px-3 text-sm"
-          value={filterType}
-          onChange={(e) => setFilterType(e.target.value)}
-        >
-          <option value="">全部类型</option>
-          {itemTypes.map((t) => (
-            <option key={t} value={t}>{t}</option>
-          ))}
-        </select>
+        <Select value={filterDocId || "all"} onValueChange={(v) => setFilterDocId(v === "all" ? "" : v)}>
+          <SelectTrigger className="w-48">
+            <SelectValue placeholder="全部文档" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">全部文档</SelectItem>
+            {docs.map((d) => (
+              <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={filterType || "all"} onValueChange={(v) => setFilterType(v === "all" ? "" : v)}>
+          <SelectTrigger className="w-40">
+            <SelectValue placeholder="全部类型" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">全部类型</SelectItem>
+            {itemTypes.map((t) => (
+              <SelectItem key={t} value={t}>{t}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Button
           size="sm"
+          className="ml-auto"
           onClick={() => { resetForm(); setOpen(true); }}
         >
           <Plus className="mr-1 h-4 w-4" />
