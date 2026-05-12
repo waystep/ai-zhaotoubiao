@@ -26,6 +26,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { PdfViewer, type IssueLocation } from "@/components/document/pdf-viewer";
+import { ExtractionItemManager } from "@/components/document/extraction-item-manager";
 import { useToast } from "@/hooks/use-toast";
 
 interface ParsedBlock {
@@ -75,7 +76,7 @@ interface ExtractedItem {
   title: string;
   description: string;
   itemType?: string;
-  itemCategory?: string; // "review" | "response"
+  itemCategory?: string | null; // "review" | "response"
   responseType?: string;
   consequence?: string | null;
   legalReference?: string | null;
@@ -805,6 +806,12 @@ export default function DocumentDetailPage() {
                         <div className="text-h5">{extractionResult.summary?.responseTotal ?? extractionResult.responseItems.length}</div>
                       </div>
                     </div>
+                    <ExtractionItemManager
+                      documentId={documentId}
+                      projectId={projectId}
+                      items={extractionResult.items as any}
+                      onRefresh={fetchExtractionResult}
+                    />
                     {totalExtracted === 0 ? (
                       <div className="mb-4 rounded-md border border-dashed p-4">
                         <div className="text-sm font-medium">暂无已提取信息</div>
