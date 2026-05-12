@@ -80,8 +80,9 @@ function mapBoxToOverlay(
   overlayH: number,
   inset: number = 0
 ) {
+  // PDF 坐标系原点在左下角(y↑)，CSS 原点在左上角(y↓)，需翻转 Y 轴
   const left = (box.x0 / refW) * overlayW - inset;
-  const top = (box.y0 / refH) * overlayH - inset;
+  const top = ((refH - box.y1) / refH) * overlayH - inset;
   const width = ((box.x1 - box.x0) / refW) * overlayW + inset * 2;
   const height = ((box.y1 - box.y0) / refH) * overlayH + inset * 2;
   return { left, top, width: Math.max(width, 1), height: Math.max(height, 1) };
