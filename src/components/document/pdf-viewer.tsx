@@ -533,9 +533,9 @@ export function PdfViewer({
               style={{ left: pLeft, top: pTop }}
             >
               <button
-                className="absolute right-1 top-1 rounded p-0.5 text-muted-foreground hover:text-foreground"
+                className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full border bg-white text-xs text-muted-foreground shadow hover:bg-muted hover:text-foreground"
                 onClick={(e) => { e.stopPropagation(); onDismissPopover?.(); }}
-              >x</button>
+              >&#x2715;</button>
               <div className="font-semibold text-foreground mb-1">{activePopover.title}</div>
               <p className="text-xs text-muted-foreground leading-5">{activePopover.desc}</p>
               {activePopover.consequence && (
