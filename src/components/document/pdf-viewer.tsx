@@ -105,6 +105,8 @@ export function PdfViewer({
   // Base page dimensions — recorded once from page 1 render, stable across zoom changes.
   // This eliminates highlight overlay flash: overlaySize is always derived, never null after first render.
   const [pageBaseDims, setPageBaseDims] = useState<{ w: number; h: number } | null>(null);
+  // Per-page PDF dimensions (points at scale 1), keyed by page number
+  const pageRefDims = useRef<Map<number, { w: number; h: number }>>(new Map());
 
   const [pdfReady, setPdfReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -245,11 +247,23 @@ export function PdfViewer({
   const handlePage1RenderSuccess = useCallback(
     (page: { getViewport: (opts: { scale: number }) => { width: number; height: number } }) => {
       setPageBaseDims((prev) => {
-        if (prev) return prev; // already set, don't overwrite
+        if (prev) return prev;
         const base = page.getViewport({ scale: 1 });
         return { w: base.width, h: base.height };
       });
     },
+    []
+  );
+
+  // Record per-page PDF reference dimensions
+  const handlePageRenderSuccess = useCallback(
+    (pageNum: number) =>
+      (page: { getViewport: (opts: { scale: number }) => { width: number; height: number } }) => {
+        if (!pageRefDims.current.has(pageNum)) {
+          const vp = page.getViewport({ scale: 1 });
+          pageRefDims.current.set(pageNum, { w: vp.width, h: vp.height });
+        }
+      },
     []
   );
 
@@ -309,9 +323,13 @@ export function PdfViewer({
         return;
       }
 
-      const refW = pageBaseDims.w;
-      const refH = pageBaseDims.h;
-      const mapped = mapBoxToOverlay(box, refW, refH, overlaySize.w, overlaySize.h);
+      const refs = pageRefDims.current.get(issue.pageNumber);
+      const refW = refs?.w ?? pageBaseDims.w;
+      const refH = refs?.h ?? pageBaseDims.h;
+      const dims = pageDims.current.get(issue.pageNumber);
+      const rW = dims?.w ?? overlaySize.w;
+      const rH = dims?.h ?? overlaySize.h;
+      const mapped = mapBoxToOverlay(box, refW, refH, rW, rH);
 
       // 目标：将 bbox 垂直居中到容器可视区域偏上（更符合阅读）
       const containerRect = container.getBoundingClientRect();
@@ -413,15 +431,10 @@ export function PdfViewer({
       scrollToIssue({ ...focusedIssue, pageNumber: target });
     });
 
-    const t = window.setTimeout(() => {
-      onFocusedIssueConsumed?.();
-    }, 800);
-
     return () => {
       cancelAnimationFrame(raf);
-      window.clearTimeout(t);
     };
-  }, [focusedIssue, pdfReady, numPages, onFocusedIssueConsumed, scrollToIssue, scrollToPage]);
+  }, [focusedIssue, pdfReady, numPages, scrollToIssue, scrollToPage]);
 
   function isFocused(issue: IssueLocation): boolean {
     if (!focusedIssue) return false;
@@ -454,13 +467,14 @@ export function PdfViewer({
     if (allIssues.length === 0) return null;
 
     const pageBlocks = blocksByPage.get(pageNum) ?? [];
-    // 使用本页实际渲染尺寸，确保 bbox 映射精确
+    // 使用本页实际渲染尺寸做 overlay
     const dims = pageDims.current.get(pageNum);
     const rW = dims?.w ?? overlaySize!.w;
     const rH = dims?.h ?? overlaySize!.h;
-    // bbox 参考系用 PDF 页面原始尺寸
-    const refW = pageBaseDims!.w;
-    const refH = pageBaseDims!.h;
+    // bbox 参考系用本页 PDF 原始尺寸（每页独立，避免跨页尺寸差异）
+    const refs = pageRefDims.current.get(pageNum);
+    const refW = refs?.w ?? pageBaseDims!.w;
+    const refH = refs?.h ?? pageBaseDims!.h;
 
     return (
       <>
@@ -694,7 +708,10 @@ export function PdfViewer({
                               </div>
                             )
                           }
-                          onRenderSuccess={pageNum === 1 ? handlePage1RenderSuccess : undefined}
+                          onRenderSuccess={(p) => {
+                            if (pageNum === 1) handlePage1RenderSuccess(p);
+                            handlePageRenderSuccess(pageNum)(p);
+                          }}
                         />
                         {overlaySize && renderPageOverlay(pageNum)}
                       </div>
