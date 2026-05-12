@@ -67,8 +67,10 @@ function mapBoxToOverlay(
   inset: number = 0
 ) {
   // MinerU bbox 使用左上角原点，与 CSS overlay 一致
+  // 垂直补偿：react-pdf text layer 的 font metrics 引入约 2% 偏移
+  const yCorrection = inset ? 0 : Math.round(overlayH * 0.018);
   const left = (box.x0 / refW) * overlayW - inset;
-  const top = (box.y0 / refH) * overlayH - inset;
+  const top = (box.y0 / refH) * overlayH - yCorrection - inset;
   const width = ((box.x1 - box.x0) / refW) * overlayW + inset * 2;
   const height = ((box.y1 - box.y0) / refH) * overlayH + inset * 2;
   return { left, top, width: Math.max(width, 1), height: Math.max(height, 1) };
@@ -492,7 +494,7 @@ export function PdfViewer({
               refH,
               rW,
               rH,
-              2
+              0
             );
             const focused = isFocused(issue);
             const hovered = !focused && isHovered(issue);
@@ -533,7 +535,7 @@ export function PdfViewer({
               refH,
               rW,
               rH,
-              2
+              0
             );
             return (
               <div
