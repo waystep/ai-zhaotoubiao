@@ -663,9 +663,20 @@ export default function DocumentDetailPage() {
                     ) : (
                       <div className="max-h-[calc(100vh-14rem)] space-y-2 overflow-y-auto pr-1">
                         {imageRiskResult.images.map((image) => (
-                          <div
+                          <button
                             key={image.id}
-                            className="rounded-md border bg-background p-3"
+                            type="button"
+                            className="w-full rounded-md border bg-background p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted/40"
+                            onClick={() => {
+                              setCurrentPage(image.pageNumber);
+                              setFocusedIssue({
+                                pageNumber: image.pageNumber,
+                                blockIndex: 0,
+                                bbox: undefined,
+                                textSnippet: image.imagePath,
+                              });
+                            }}
+                            title="点击定位到PDF对应页面"
                           >
                             <div className="mb-2 flex items-center gap-2">
                               <FileImage className="h-4 w-4 text-muted-foreground" />
@@ -716,7 +727,7 @@ export default function DocumentDetailPage() {
                             <div className="mt-2 text-xs text-muted-foreground truncate">
                               {image.imagePath}
                             </div>
-                          </div>
+                          </button>
                         ))}
                       </div>
                     )}
