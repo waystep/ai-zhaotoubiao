@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   AlertCircle,
   AlertTriangle,
   ArrowLeft,
+  Blocks,
   CheckCircle,
   Clock,
   FileImage,
@@ -13,13 +14,17 @@ import {
   Loader2,
   Play,
   Sparkles,
+  Table,
   Trash2,
   XCircle,
 } from "lucide-react";
+import { Streamdown } from "streamdown";
+import { cjk } from "@streamdown/cjk";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { PdfViewer, type IssueLocation } from "@/components/document/pdf-viewer";
 import { useToast } from "@/hooks/use-toast";
 
@@ -70,7 +75,6 @@ interface ExtractedItem {
   title: string;
   description: string;
   itemType?: string;
-  itemCategory?: string; // "review" | "response"
   responseType?: string;
   consequence?: string | null;
   legalReference?: string | null;
@@ -79,21 +83,17 @@ interface ExtractedItem {
   location?: {
     pageNumber?: number;
     blockIndex?: number;
-    bbox?: { x0: number; y0: number; x1: number; y1: number } | null;
   };
 }
 
 interface ExtractionResult {
-  items: ExtractedItem[]; // unified items from extraction_items table
-  reviewItems: ExtractedItem[]; // backward compat
+  reviewItems: ExtractedItem[];
   responseItems: ExtractedItem[];
   extractionStatus?: string;
   extractionError?: string | null;
   summary?: {
-    total: number;
-    reviewTotal: number;
-    responseTotal: number;
-    itemTypes: string[];
+    reviewItemsTotal: number;
+    responseItemsTotal: number;
   };
 }
 
@@ -169,6 +169,18 @@ function getParseStatusIcon(status: string) {
   }
 }
 
+function getBlockTypeIcon(type: string | null) {
+  switch (type) {
+    case "table":
+      return <Table className="h-4 w-4 text-blue-600" />;
+    case "image":
+    case "figure":
+      return <FileImage className="h-4 w-4 text-emerald-600" />;
+    default:
+      return <FileText className="h-4 w-4 text-muted-foreground" />;
+  }
+}
+
 function confidenceLabel(value: string | number | null | undefined) {
   if (value == null) return null;
   const n = typeof value === "string" ? Number(value) : value;
@@ -176,7 +188,7 @@ function confidenceLabel(value: string | number | null | undefined) {
   return n <= 1 ? `${Math.round(n * 100)}%` : `${Math.round(n)}%`;
 }
 
-function _unused_rewriteMarkdownImageUrls(markdown: string, documentId: string) {
+function rewriteMarkdownImageUrls(markdown: string, documentId: string) {
   const toApiUrl = (raw: string) => {
     if (/^(https?:|data:|\/api\/images\/|\/)/i.test(raw)) return raw;
     const normalized = raw.replace(/^\.?\//, "");
@@ -190,6 +202,75 @@ function _unused_rewriteMarkdownImageUrls(markdown: string, documentId: string) 
     .replace(/(<img\b[^>]*\bsrc=["'])(images\/[^"']+)(["'][^>]*>)/gi, (_m, prefix, src, suffix) => `${prefix}${toApiUrl(src)}${suffix}`);
 }
 
+function groupBlocksByPage(blocks: ParsedBlock[]) {
+  const grouped = new Map<number, ParsedBlock[]>();
+  for (const block of blocks) {
+    const list = grouped.get(block.pageNumber) ?? [];
+    list.push(block);
+    grouped.set(block.pageNumber, list);
+  }
+
+  return Array.from(grouped.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([pageNumber, pageBlocks]) => ({
+      pageNumber,
+      blocks: pageBlocks.sort((a, b) => a.blockIndex - b.blockIndex),
+    }));
+}
+
+function ExtractedItemList({
+  items,
+  emptyText,
+  type,
+}: {
+  items: ExtractedItem[];
+  emptyText: string;
+  type: "review" | "response";
+}) {
+  if (items.length === 0) {
+    return (
+      <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+        {emptyText}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {items.map((item) => {
+        const pageNumber = item.location?.pageNumber ?? item.sourceBlock?.pageNumber;
+        const blockIndex = item.location?.blockIndex ?? item.sourceBlock?.blockIndex;
+        const confidence = confidenceLabel(item.extractionConfidence);
+        return (
+          <div key={item.id} className="rounded-md border bg-background p-3">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <Badge variant="secondary">{type === "review" ? item.itemType : item.responseType}</Badge>
+              {item.itemNo && <Badge variant="outline">{item.itemNo}</Badge>}
+              {pageNumber ? <Badge variant="outline">P.{pageNumber}</Badge> : null}
+              {blockIndex != null ? (
+                <span className="text-xs text-muted-foreground">#{blockIndex}</span>
+              ) : null}
+              {confidence ? (
+                <span className="ml-auto text-xs text-muted-foreground">置信度 {confidence}</span>
+              ) : null}
+            </div>
+            <div className="text-sm font-medium leading-6">{item.title}</div>
+            <p className="mt-1 line-clamp-4 text-sm leading-6 text-muted-foreground">
+              {item.description}
+            </p>
+            {type === "review" && (item.consequence || item.legalReference) ? (
+              <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                {item.consequence ? <p>后果：{item.consequence}</p> : null}
+                {item.legalReference ? <p>依据：{item.legalReference}</p> : null}
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function DocumentDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -200,7 +281,6 @@ export default function DocumentDetailPage() {
   const [document, setDocument] = useState<DocumentDetail | null>(null);
   const [parsedResult, setParsedResult] = useState<ParsedResult | null>(null);
   const [extractionResult, setExtractionResult] = useState<ExtractionResult>({
-    items: [],
     reviewItems: [],
     responseItems: [],
   });
@@ -213,7 +293,9 @@ export default function DocumentDetailPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const [focusedIssue, setFocusedIssue] = useState<IssueLocation | null>(null);
+  const [focusedBlock, setFocusedBlock] = useState<ParsedBlock | null>(null);
+  // 从提取项/图片风险项点击产生的定位（不走 focusedBlock）
+  const [externalFocus, setExternalFocus] = useState<IssueLocation | null>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasFetchedRef = useRef(false);
 
@@ -223,7 +305,6 @@ export default function DocumentDetailPage() {
       if (!response.ok) return;
       const data = await response.json();
       setExtractionResult({
-        items: data.items ?? data.reviewItems?.concat(data.responseItems ?? []) ?? [],
         reviewItems: data.reviewItems ?? [],
         responseItems: data.responseItems ?? [],
         extractionStatus: data.document?.extractionStatus,
@@ -284,8 +365,6 @@ export default function DocumentDetailPage() {
         if (data.document?.parseStatus === "processing") {
           setIsParsing(true);
         }
-        // 自动生成页面嵌入（如尚未生成）
-        void ensureEmbeddings();
       }
     } catch (error) {
       console.error("获取文档详情失败:", error);
@@ -300,20 +379,6 @@ export default function DocumentDetailPage() {
       pollIntervalRef.current = null;
     }
   }, []);
-
-  const ensureEmbeddings = useCallback(async () => {
-    try {
-      // 检查是否已有嵌入
-      const res = await fetch(`/api/documents/${documentId}/embeddings`);
-      if (!res.ok) return;
-      const data = await res.json();
-      if (data.hasEmbeddings) return; // 已有，跳过
-      // 触发后台生成
-      fetch(`/api/documents/${documentId}/embeddings`, { method: "POST" }).catch(() => {});
-    } catch {
-      // 静默失败，不影响主流程
-    }
-  }, [documentId]);
 
   const startPolling = useCallback(() => {
     stopPolling();
@@ -459,6 +524,22 @@ export default function DocumentDetailPage() {
     }
   }
 
+  const markdown = useMemo(() => {
+    const text = parsedResult?.fullText?.trim();
+    if (!text) return "";
+    return rewriteMarkdownImageUrls(text, documentId);
+  }, [documentId, parsedResult?.fullText]);
+
+  const focusedIssue = useMemo(() => {
+    if (!focusedBlock) return null;
+    return {
+      pageNumber: focusedBlock.pageNumber,
+      blockIndex: focusedBlock.blockIndex,
+      bbox: focusedBlock.bbox,
+      textSnippet: focusedBlock.content?.slice(0, 120),
+    };
+  }, [focusedBlock]);
+
   if (isLoading) {
     return (
       <div className="flex min-h-[400px] items-center justify-center">
@@ -481,8 +562,11 @@ export default function DocumentDetailPage() {
 
   const blockCount = parsedResult?.blocks.length ?? 0;
   const totalPages = parsedResult?.totalPages ?? 0;
-  const totalExtracted = extractionResult.items.length;
+  const totalExtracted =
+    extractionResult.reviewItems.length + extractionResult.responseItems.length;
   const shouldShowExtractedTab = document.docType !== "bid_doc";
+  const blocksByPage = parsedResult ? groupBlocksByPage(parsedResult.blocks) : [];
+  const defaultOpenPages = blocksByPage.slice(0, 2).map((page) => `page-${page.pageNumber}`);
 
   return (
     <div className="space-y-5">
@@ -582,7 +666,7 @@ export default function DocumentDetailPage() {
             <Clock className="mb-4 h-12 w-12 text-muted-foreground" />
             <h3 className="mb-2 text-h5">文档待解析</h3>
             <p className="mb-4 text-center text-sm text-muted-foreground">
-              解析完成后可查看源文件、全文内容与提取信息。
+              解析完成后可查看源文件、区块详情、全文 Markdown 与提取信息。
             </p>
             <Button onClick={handleParse} disabled={isParsing}>
               {isParsing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
@@ -616,8 +700,12 @@ export default function DocumentDetailPage() {
               <CardTitle className="text-base">文档导航</CardTitle>
             </CardHeader>
             <CardContent className="min-h-0">
-              <Tabs defaultValue={document.docType === "bid_doc" ? "imageRisks" : "extracted"} className="min-h-0">
-                <TabsList className="grid w-full grid-cols-1">
+              <Tabs defaultValue="blocks" className="min-h-0">
+                <TabsList className={document.docType === "bid_doc" ? "grid w-full grid-cols-2" : (shouldShowExtractedTab ? "grid w-full grid-cols-2" : "grid w-full grid-cols-1")}>
+                  <TabsTrigger value="blocks" className="gap-1">
+                    <Blocks className="h-4 w-4" />
+                    区块详情
+                  </TabsTrigger>
                   {document.docType === "bid_doc" ? (
                     <TabsTrigger value="imageRisks" className="gap-1">
                       <AlertTriangle className="h-4 w-4" />
@@ -636,6 +724,56 @@ export default function DocumentDetailPage() {
                     </TabsTrigger>
                   ) : null}
                 </TabsList>
+
+                <TabsContent value="blocks" className="mt-4">
+                  <div className="mb-3 text-xs text-muted-foreground">
+                    共 {blockCount} 个区块，点击后定位到右侧源文件预览。
+                  </div>
+                  <Accordion
+                    type="multiple"
+                    defaultValue={defaultOpenPages}
+                    className="max-h-[calc(100vh-13rem)] overflow-y-auto pr-1"
+                  >
+                    {blocksByPage.map((page) => (
+                      <AccordionItem
+                        key={page.pageNumber}
+                        value={`page-${page.pageNumber}`}
+                        className="border-b"
+                      >
+                        <AccordionTrigger className="py-3 hover:no-underline">
+                          <span className="flex items-center gap-2">
+                            <Badge variant="outline">P.{page.pageNumber}</Badge>
+                            <span>{page.blocks.length} 个区块</span>
+                          </span>
+                        </AccordionTrigger>
+                        <AccordionContent className="space-y-2 pb-3">
+                          {page.blocks.map((block) => (
+                            <button
+                              key={block.id}
+                              type="button"
+                              className="w-full rounded-md border bg-background p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted/40"
+                              onClick={() => {
+                                setFocusedBlock(block);
+                                setCurrentPage(block.pageNumber);
+                              }}
+                            >
+                              <div className="mb-2 flex items-center gap-2">
+                                {getBlockTypeIcon(block.blockType)}
+                                <Badge variant="secondary">{block.blockType || "text"}</Badge>
+                                <span className="ml-auto text-xs text-muted-foreground">
+                                  #{block.blockIndex}
+                                </span>
+                              </div>
+                              <p className="line-clamp-3 text-sm leading-6 text-muted-foreground">
+                                {block.content || "（无文本内容）"}
+                              </p>
+                            </button>
+                          ))}
+                        </AccordionContent>
+                      </AccordionItem>
+                    ))}
+                  </Accordion>
+                </TabsContent>
 
                 {document.docType === "bid_doc" ? (
                   <TabsContent value="imageRisks" className="mt-4">
@@ -662,29 +800,10 @@ export default function DocumentDetailPage() {
                       </div>
                     ) : (
                       <div className="max-h-[calc(100vh-14rem)] space-y-2 overflow-y-auto pr-1">
-                        {imageRiskResult.images.map((image) => {
-                          // 通过 imagePath 匹配 blocks 获取精确 bbox
-                          const imgBlock = parsedResult?.blocks?.find(
-                            (b: any) => b.imagePath === image.imagePath
-                          );
-                          const imgPage = imgBlock?.pageNumber ?? image.pageNumber;
-                          const imgIdx = imgBlock?.blockIndex ?? -1;
-                          const imgBbox = imgBlock?.bbox ?? undefined;
-
-                          return (
-                          <button
+                        {imageRiskResult.images.map((image) => (
+                          <div
                             key={image.id}
-                            type="button"
-                            className="w-full rounded-md border bg-background p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted/40"
-                            onClick={() => {
-                              setCurrentPage(imgPage);
-                              setFocusedIssue({
-                                pageNumber: imgPage,
-                                blockIndex: imgIdx,
-                                bbox: imgBbox,
-                              });
-                            }}
-                            title={imgBlock ? "点击定位到PDF对应图片位置" : "点击定位到PDF对应页面"}
+                            className="rounded-md border bg-background p-3"
                           >
                             <div className="mb-2 flex items-center gap-2">
                               <FileImage className="h-4 w-4 text-muted-foreground" />
@@ -735,9 +854,8 @@ export default function DocumentDetailPage() {
                             <div className="mt-2 text-xs text-muted-foreground truncate">
                               {image.imagePath}
                             </div>
-                          </button>
-                          );
-                        })}
+                          </div>
+                        ))}
                       </div>
                     )}
                   </TabsContent>
@@ -747,12 +865,12 @@ export default function DocumentDetailPage() {
                   <TabsContent value="extracted" className="mt-4">
                     <div className="mb-3 grid grid-cols-2 gap-2 text-xs">
                       <div className="rounded-md bg-muted/50 p-2">
-                        <div className="text-muted-foreground">审查项</div>
-                        <div className="text-h5">{extractionResult.summary?.reviewTotal ?? extractionResult.reviewItems.length}</div>
+                        <div className="text-muted-foreground">应答项</div>
+                        <div className="text-h5">{extractionResult.responseItems.length}</div>
                       </div>
                       <div className="rounded-md bg-muted/50 p-2">
-                        <div className="text-muted-foreground">应答项</div>
-                        <div className="text-h5">{extractionResult.summary?.responseTotal ?? extractionResult.responseItems.length}</div>
+                        <div className="text-muted-foreground">审查项</div>
+                        <div className="text-h5">{extractionResult.reviewItems.length}</div>
                       </div>
                     </div>
                     {totalExtracted === 0 ? (
@@ -782,103 +900,25 @@ export default function DocumentDetailPage() {
                         </Button>
                       </div>
                     ) : null}
-                    <div className="max-h-[calc(100vh-14rem)] space-y-3 overflow-y-auto pr-1">
-                      {extractionResult.items.map((item) => {
-                        const isReview = item.itemCategory === "review";
-                        const pageNumber = item.location?.pageNumber ?? item.sourceBlock?.pageNumber;
-                        const blockIndex = item.location?.blockIndex ?? item.sourceBlock?.blockIndex;
-                        const confidence = confidenceLabel(item.extractionConfidence);
-                        // 通过 sourceBlockId 从已加载的 blocks 中查找真实 block 信息
-                        const resolvedBlock =
-                          (item as any).sourceBlockId && parsedResult?.blocks
-                            ? parsedResult.blocks.find(
-                                (b: any) => b.id === (item as any).sourceBlockId
-                              )
-                            : null;
-                        const locPage =
-                          resolvedBlock?.pageNumber ??
-                          item.location?.pageNumber ??
-                          item.sourceBlock?.pageNumber ??
-                          0;
-                        const locIdx =
-                          resolvedBlock?.blockIndex ??
-                          item.location?.blockIndex ??
-                          item.sourceBlock?.blockIndex ??
-                          0;
-                        const locBbox =
-                          resolvedBlock?.bbox ??
-                          item.location?.bbox ??
-                          item.sourceBlock?.bbox;
-                        const canLocate = locPage > 0;
-                        const hasExactBlock = !!resolvedBlock;
-
-                        return (
-                          <button
-                            key={item.id}
-                            type="button"
-                            disabled={!canLocate}
-                            className={`w-full rounded-md border bg-background p-3 text-left transition-colors ${
-                              canLocate ? "hover:border-primary/40 hover:bg-muted/40 cursor-pointer" : ""
-                            }`}
-                            onClick={() => {
-                              if (!canLocate) return;
-                              setCurrentPage(locPage);
-                              setFocusedIssue({
-                                pageNumber: locPage,
-                                blockIndex: locIdx,
-                                bbox: locBbox || undefined,
-                                textSnippet: item.title,
-                              });
-                            }}
-                            title={
-                              hasExactBlock
-                                ? "点击定位到原文（已关联区块）"
-                                : canLocate
-                                ? "点击定位到对应页面"
-                                : "无定位信息"
-                            }
-                          >
-                            <div className="mb-2 flex flex-wrap items-center gap-2">
-                              <Badge variant={isReview ? "destructive" : "secondary"}>
-                                {isReview ? "审查项" : "应答项"}
-                              </Badge>
-                              <Badge variant="secondary">{item.itemType}</Badge>
-                              {(item as any).bidSection && (
-                                <Badge variant="outline" className="border-blue-300 text-blue-700">
-                                  {(item as any).bidSection}
-                                </Badge>
-                              )}
-                              {item.itemNo && <Badge variant="outline">{item.itemNo}</Badge>}
-                              {pageNumber ? <Badge variant="outline">P.{pageNumber}</Badge> : null}
-                              {blockIndex != null ? (
-                                <span className="text-xs text-muted-foreground">#{blockIndex}</span>
-                              ) : null}
-                              {(item as any).sourceBlockId && (
-                                <span className="ml-auto text-xs text-emerald-600" title="已关联原始区块">
-                                  已定位
-                                </span>
-                              )}
-                              {confidence ? (
-                                <span className="ml-auto text-xs text-muted-foreground">置信度 {confidence}</span>
-                              ) : null}
-                            </div>
-                            <div className="text-sm font-medium leading-6">{item.title}</div>
-                            <p className="mt-1 line-clamp-4 text-sm leading-6 text-muted-foreground">
-                              {item.description}
-                            </p>
-                            {isReview && item.consequence ? (
-                              <p className="mt-1 text-xs text-destructive">
-                                后果：{item.consequence}
-                              </p>
-                            ) : null}
-                            {isReview && item.legalReference ? (
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                依据：{item.legalReference}
-                              </p>
-                            ) : null}
-                          </button>
-                        );
-                      })}
+                    <div className="max-h-[calc(100vh-14rem)] space-y-4 overflow-y-auto pr-1">
+                      {document.docType === "tender_doc" ? (
+                        <section>
+                          <h3 className="mb-2 text-sm font-medium">应答项</h3>
+                          <ExtractedItemList
+                            type="response"
+                            items={extractionResult.responseItems}
+                            emptyText="暂无应答项。"
+                          />
+                        </section>
+                      ) : null}
+                      <section>
+                        <h3 className="mb-2 text-sm font-medium">审查项</h3>
+                        <ExtractedItemList
+                          type="review"
+                          items={extractionResult.reviewItems}
+                          emptyText="暂无审查项。"
+                        />
+                      </section>
                     </div>
                   </TabsContent>
                 ) : null}
@@ -888,14 +928,39 @@ export default function DocumentDetailPage() {
 
           <Card className="min-w-0 bg-muted/20 shadow-sm">
             <CardContent className="p-4">
-              <PdfViewer
-                documentId={documentId}
-                blocks={parsedResult.blocks}
-                focusedIssue={focusedIssue}
-                currentPage={currentPage}
-                onPageChange={setCurrentPage}
-                onFocusedIssueConsumed={() => setFocusedIssue(null)}
-              />
+              <Tabs defaultValue="source" className="space-y-4">
+                <TabsList>
+                  <TabsTrigger value="source">源文件预览</TabsTrigger>
+                  <TabsTrigger value="content">全文内容</TabsTrigger>
+                </TabsList>
+                <TabsContent value="source" className="mt-0">
+                  <PdfViewer
+                    documentId={documentId}
+                    blocks={parsedResult.blocks}
+                    highlightedIssues={focusedIssue ? [focusedIssue] : []}
+                    focusedIssue={focusedIssue}
+                    currentPage={currentPage}
+                    onPageChange={setCurrentPage}
+                    onFocusedIssueConsumed={() => setFocusedBlock(null)}
+                  />
+                </TabsContent>
+                <TabsContent value="content" className="mt-0">
+                  {markdown ? (
+                    <div className="max-h-[calc(100vh-10rem)] overflow-y-auto rounded-md border bg-background p-5">
+                      <Streamdown
+                        className="prose prose-sm max-w-none dark:prose-invert prose-img:max-w-full prose-img:rounded-md"
+                        plugins={{ cjk }}
+                      >
+                        {markdown}
+                      </Streamdown>
+                    </div>
+                  ) : (
+                    <div className="rounded-md border border-dashed bg-background p-6 text-sm text-muted-foreground">
+                      暂无全文内容。
+                    </div>
+                  )}
+                </TabsContent>
+              </Tabs>
             </CardContent>
           </Card>
         </div>
