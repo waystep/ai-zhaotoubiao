@@ -1,0 +1,1 @@
+ALTER TABLE "extraction_items" ADD COLUMN "bid_section" varchar(20);

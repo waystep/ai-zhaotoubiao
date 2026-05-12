@@ -2,13 +2,24 @@
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
 import { db } from "@/lib/db/client";
-import { extractionItems, documents } from "@/lib/db/schema";
+import { extractionItems, documents, documentBlocks } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function validateBlockId(blockId: string | undefined | null): Promise<string | null> {
+  if (!blockId || !UUID_RE.test(blockId)) return null;
+  const exists = await db.query.documentBlocks.findFirst({
+    where: eq(documentBlocks.id, blockId),
+    columns: { id: true },
+  });
+  return exists ? exists.id : null;
+}
 
 export const extractionItemStorageTool = createTool({
   id: "extraction-item-storage",
   description:
-    "将提取的审查项或应答项存储到统一的 extraction_items 表。使用 itemCategory 字段区分：review=审查项, response=应答项。",
+    "将提取的审查项或应答项存储到统一的 extraction_items 表。sourceBlockId 必须使用 documentReaderTool 返回的真实 block.id (UUID)。bidSection 用于区分技术标/商务标。",
   inputSchema: z.object({
     projectId: z.string().uuid().describe("项目ID"),
     documentId: z.string().uuid().describe("文档ID"),
@@ -18,7 +29,14 @@ export const extractionItemStorageTool = createTool({
           itemCategory: z
             .enum(["review", "response"])
             .describe("类别：review=审查项, response=应答项"),
-          sourceBlockId: z.string().optional().describe("来源区块ID（可选，传null或跳过）"),
+          bidSection: z
+            .enum(["技术标", "商务标"])
+            .optional()
+            .describe("标段区分：技术标或商务标，无法判断时留空"),
+          sourceBlockId: z
+            .string()
+            .optional()
+            .describe("来源区块的真实 UUID（从 documentReaderTool 返回的 block.id），无法确定时传 null 或跳过"),
           itemType: z.string().describe("类型（如：工期要求、资质要求、完整性要求、编制标准等）"),
           itemNo: z.string().optional().describe("条款编号"),
           title: z.string().describe("标题"),
@@ -32,8 +50,7 @@ export const extractionItemStorageTool = createTool({
               highlightText: z.string().optional(),
             })
             .optional()
-            .describe("位置信息"),
-          // 审查项专用
+            .describe("位置信息（页码从1开始）"),
           requirements: z
             .object({
               mandatory: z.boolean().optional(),
@@ -44,7 +61,6 @@ export const extractionItemStorageTool = createTool({
             .optional(),
           consequence: z.string().optional().describe("不满足后果"),
           legalReference: z.string().optional().describe("法律依据"),
-          // 应答项专用
           responseRequirements: z
             .object({
               requiredFormat: z.string().optional(),
@@ -54,10 +70,7 @@ export const extractionItemStorageTool = createTool({
             })
             .optional(),
           scoringInfo: z
-            .object({
-              weight: z.number().optional(),
-              scoringCriteria: z.string().optional(),
-            })
+            .object({ weight: z.number().optional(), scoringCriteria: z.string().optional() })
             .optional(),
           extractionConfidence: z.number().optional().describe("置信度 0-1"),
           extractionMetadata: z.any().optional(),
@@ -84,15 +97,26 @@ export const extractionItemStorageTool = createTool({
       }
 
       const storedIds: string[] = [];
+      let validatedCount = 0;
+      let rejectedCount = 0;
 
       for (const item of items) {
+        // 验证 sourceBlockId：必须是真实存在的 block UUID
+        const validBlockId = await validateBlockId(item.sourceBlockId);
+        if (item.sourceBlockId && !validBlockId) {
+          console.warn(`[ExtractionStorage] 无效 sourceBlockId: ${item.sourceBlockId}，已置为 null`);
+          rejectedCount++;
+        }
+        if (validBlockId) validatedCount++;
+
         const [record] = await db
           .insert(extractionItems)
           .values({
             projectId,
             documentId,
             itemCategory: item.itemCategory || "review",
-            sourceBlockId: item.sourceBlockId || null,
+            bidSection: item.bidSection || null,
+            sourceBlockId: validBlockId,
             itemType: item.itemType,
             itemNo: item.itemNo || null,
             title: item.title,
@@ -130,11 +154,15 @@ export const extractionItemStorageTool = createTool({
         .set({ extractionItemsCount: currentCount + storedIds.length, updatedAt: new Date() })
         .where(eq(documents.id, documentId));
 
+      console.log(
+        `[ExtractionStorage] 存储 ${storedIds.length} 项，${validatedCount} 个有效 blockId，${rejectedCount} 个被拒绝`
+      );
+
       return {
         storedItemIds: storedIds,
         totalStored: storedIds.length,
         success: true,
-        message: `成功存储 ${storedIds.length} 个提取项`,
+        message: `成功存储 ${storedIds.length} 个提取项（${validatedCount} 个关联到原始区块）`,
       };
     } catch (error) {
       console.error("存储提取项失败:", error);

@@ -579,6 +579,9 @@ export const extractionItems = pgTable("extraction_items", {
   // 类别：审查项(review) 或 应答项(response)
   itemCategory: extractionItemCategoryEnum("item_category").notNull(),
 
+  // 标段区分：技术标 / 商务标
+  bidSection: varchar("bid_section", { length: 20 }),
+
   // 基本信息
   itemType: varchar("item_type", { length: 100 }).notNull(),
   itemNo: varchar("item_no", { length: 100 }),
