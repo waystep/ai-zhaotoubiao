@@ -284,6 +284,8 @@ export default function DocumentDetailPage() {
         if (data.document?.parseStatus === "processing") {
           setIsParsing(true);
         }
+        // 自动生成页面嵌入（如尚未生成）
+        void ensureEmbeddings();
       }
     } catch (error) {
       console.error("获取文档详情失败:", error);
@@ -298,6 +300,20 @@ export default function DocumentDetailPage() {
       pollIntervalRef.current = null;
     }
   }, []);
+
+  const ensureEmbeddings = useCallback(async () => {
+    try {
+      // 检查是否已有嵌入
+      const res = await fetch(`/api/documents/${documentId}/embeddings`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.hasEmbeddings) return; // 已有，跳过
+      // 触发后台生成
+      fetch(`/api/documents/${documentId}/embeddings`, { method: "POST" }).catch(() => {});
+    } catch {
+      // 静默失败，不影响主流程
+    }
+  }, [documentId]);
 
   const startPolling = useCallback(() => {
     stopPolling();
