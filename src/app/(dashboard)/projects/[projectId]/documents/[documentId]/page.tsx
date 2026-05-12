@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   AlertCircle,
@@ -16,8 +16,6 @@ import {
   Trash2,
   XCircle,
 } from "lucide-react";
-import { Streamdown } from "streamdown";
-import { cjk } from "@streamdown/cjk";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -178,7 +176,7 @@ function confidenceLabel(value: string | number | null | undefined) {
   return n <= 1 ? `${Math.round(n * 100)}%` : `${Math.round(n)}%`;
 }
 
-function rewriteMarkdownImageUrls(markdown: string, documentId: string) {
+function _unused_rewriteMarkdownImageUrls(markdown: string, documentId: string) {
   const toApiUrl = (raw: string) => {
     if (/^(https?:|data:|\/api\/images\/|\/)/i.test(raw)) return raw;
     const normalized = raw.replace(/^\.?\//, "");
@@ -460,12 +458,6 @@ export default function DocumentDetailPage() {
       setIsExtracting(false);
     }
   }
-
-  const markdown = useMemo(() => {
-    const text = parsedResult?.fullText?.trim();
-    if (!text) return "";
-    return rewriteMarkdownImageUrls(text, documentId);
-  }, [documentId, parsedResult?.fullText]);
 
   if (isLoading) {
     return (
@@ -851,38 +843,14 @@ export default function DocumentDetailPage() {
 
           <Card className="min-w-0 bg-muted/20 shadow-sm">
             <CardContent className="p-4">
-              <Tabs defaultValue="source" className="space-y-4">
-                <TabsList>
-                  <TabsTrigger value="source">源文件预览</TabsTrigger>
-                  <TabsTrigger value="content">全文内容</TabsTrigger>
-                </TabsList>
-                <TabsContent value="source" className="mt-0">
-                  <PdfViewer
-                    documentId={documentId}
-                    blocks={parsedResult.blocks}
-                    focusedIssue={focusedIssue}
-                    currentPage={currentPage}
-                    onPageChange={setCurrentPage}
-                    onFocusedIssueConsumed={() => setFocusedIssue(null)}
-                  />
-                </TabsContent>
-                <TabsContent value="content" className="mt-0">
-                  {markdown ? (
-                    <div className="max-h-[calc(100vh-10rem)] overflow-y-auto rounded-md border bg-background p-5">
-                      <Streamdown
-                        className="prose prose-sm max-w-none dark:prose-invert prose-img:max-w-full prose-img:rounded-md"
-                        plugins={{ cjk }}
-                      >
-                        {markdown}
-                      </Streamdown>
-                    </div>
-                  ) : (
-                    <div className="rounded-md border border-dashed bg-background p-6 text-sm text-muted-foreground">
-                      暂无全文内容。
-                    </div>
-                  )}
-                </TabsContent>
-              </Tabs>
+              <PdfViewer
+                documentId={documentId}
+                blocks={parsedResult.blocks}
+                focusedIssue={focusedIssue}
+                currentPage={currentPage}
+                onPageChange={setCurrentPage}
+                onFocusedIssueConsumed={() => setFocusedIssue(null)}
+              />
             </CardContent>
           </Card>
         </div>
