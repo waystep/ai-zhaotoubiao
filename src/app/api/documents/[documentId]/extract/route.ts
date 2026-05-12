@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth/config";
 import { db } from "@/lib/db/client";
-import { documents, extractionItems } from "@/lib/db/schema";
+import { documents, extractionItems, reviewItems, responseItems } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { mastra } from "@/mastra";
 
@@ -45,15 +45,14 @@ export async function POST(
       );
     }
 
-    // 检查提取状态
-    if (
-      doc.extractionStatus === "completed" &&
-      ((doc.reviewItemsCount || 0) > 0 || (doc.responseItemsCount || 0) > 0)
-    ) {
-      return NextResponse.json(
-        { error: "文档已完成提取，请查看提取结果" },
-        { status: 400 }
-      );
+    // 允许重新提取：清理旧数据
+    const existingCount =
+      (doc.extractionItemsCount || 0) ||
+      (doc.reviewItemsCount || 0) + (doc.responseItemsCount || 0);
+    if (doc.extractionStatus === "completed" && existingCount > 0) {
+      await db.delete(extractionItems).where(eq(extractionItems.documentId, documentId));
+      await db.delete(reviewItems).where(eq(reviewItems.documentId, documentId));
+      await db.delete(responseItems).where(eq(responseItems.documentId, documentId));
     }
 
     // 更新状态为processing
@@ -174,17 +173,34 @@ export async function GET(
       return NextResponse.json({ error: "文档不存在" }, { status: 404 });
     }
 
-    // 查询提取结果（统一表）
-    const items = await db.query.extractionItems.findMany({
+    // 查询提取结果（统一表 + 旧表兼容）
+    const newItems = await db.query.extractionItems.findMany({
       where: eq(extractionItems.documentId, documentId),
       limit: 200,
-      with: {
-        sourceBlock: true,
-      },
+      with: { sourceBlock: true },
     });
 
-    const reviewItemsData = items.filter((i) => i.itemCategory === "review");
-    const responseItemsData = items.filter((i) => i.itemCategory === "response");
+    // 兼容旧数据：统一表为空时从旧表读取
+    let allItems: any[] = newItems;
+    if (newItems.length === 0) {
+      const oldReview = await db.query.reviewItems.findMany({
+        where: eq(reviewItems.documentId, documentId),
+        limit: 100,
+        with: { sourceBlock: true },
+      });
+      const oldResponse = await db.query.responseItems.findMany({
+        where: eq(responseItems.documentId, documentId),
+        limit: 100,
+        with: { sourceBlock: true },
+      });
+      allItems = [
+        ...oldReview.map((r) => ({ ...r, itemCategory: "review", itemType: r.itemType, responseType: undefined, responseRequirements: {}, scoringInfo: {} })),
+        ...oldResponse.map((r) => ({ ...r, itemCategory: "response", itemType: r.responseType, responseType: r.responseType, requirements: {}, consequence: null, legalReference: null })),
+      ];
+    }
+
+    const reviewItemsData = allItems.filter((i) => i.itemCategory === "review");
+    const responseItemsData = allItems.filter((i) => i.itemCategory === "response");
 
     return NextResponse.json({
       document: {
@@ -194,25 +210,16 @@ export async function GET(
         extractionStatus: doc.extractionStatus,
         extractionError: doc.extractionError,
         extractedAt: doc.extractedAt,
-        extractionItemsCount: doc.extractionItemsCount,
+        extractionItemsCount: doc.extractionItemsCount || (doc.reviewItemsCount || 0) + (doc.responseItemsCount || 0),
       },
-      // 向后兼容：保留 reviewItems / responseItems 字段名，前端暂时不用改
-      reviewItems: reviewItemsData.map((i) => ({
-        ...i,
-        itemType: i.itemType,
-        responseType: i.itemCategory === "response" ? i.itemType : undefined,
-      })),
-      responseItems: responseItemsData.map((i) => ({
-        ...i,
-        responseType: i.itemType,
-        itemType: i.itemCategory === "review" ? i.itemType : undefined,
-      })),
-      items,
+      reviewItems: reviewItemsData,
+      responseItems: responseItemsData,
+      items: allItems,
       summary: {
-        total: items.length,
+        total: allItems.length,
         reviewTotal: reviewItemsData.length,
         responseTotal: responseItemsData.length,
-        itemTypes: [...new Set(items.map((i) => i.itemType))],
+        itemTypes: [...new Set(allItems.map((i: any) => i.itemType))],
       },
     });
   } catch (error) {
