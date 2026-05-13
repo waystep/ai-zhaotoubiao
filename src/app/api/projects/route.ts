@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth/config";
 import { db } from "@/lib/db/client";
-import { tenderProjects } from "@/lib/db/schema";
+import { tenderProjects, organizations } from "@/lib/db/schema";
 import { desc, eq } from "drizzle-orm";
+import { ZodError } from "zod";
 import { createProjectSchema } from "@/types/tender";
 
 // GET: 获取项目列表
@@ -12,9 +13,19 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  if (!session.user.orgId) {
+    return NextResponse.json(
+      {
+        error:
+          "未绑定组织。若刚清理过数据库，请退出登录后重新注册并登录。",
+      },
+      { status: 403 }
+    );
+  }
+
   try {
     const projects = await db.query.tenderProjects.findMany({
-      where: eq(tenderProjects.orgId, session.user.orgId!),
+      where: eq(tenderProjects.orgId, session.user.orgId),
       orderBy: [desc(tenderProjects.createdAt)],
       with: {
         creator: {
@@ -44,6 +55,27 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  if (!session.user.orgId) {
+    return NextResponse.json(
+      {
+        error:
+          "未绑定组织。若刚清理过数据库，请退出登录后重新注册并登录，再创建项目。",
+      },
+      { status: 403 }
+    );
+  }
+
+  const org = await db.query.organizations.findFirst({
+    where: eq(organizations.id, session.user.orgId),
+    columns: { id: true },
+  });
+  if (!org) {
+    return NextResponse.json(
+      { error: "当前组织已不存在，请重新登录后再试。" },
+      { status: 403 }
+    );
+  }
+
   try {
     const body = await request.json();
     const validatedData = createProjectSchema.parse(body);
@@ -71,14 +103,21 @@ export async function POST(request: Request) {
     return NextResponse.json({ project });
   } catch (error) {
     console.error("创建项目失败:", error);
-    if (error instanceof Error && error.name === "ZodError") {
+    if (error instanceof ZodError) {
       return NextResponse.json(
-        { error: "数据验证失败", details: error },
+        { error: "数据验证失败", details: error.flatten() },
         { status: 400 }
       );
     }
     return NextResponse.json(
-      { error: "创建项目失败" },
+      {
+        error: "创建项目失败",
+        ...(process.env.NODE_ENV === "development" &&
+        error instanceof Error &&
+        error.message
+          ? { debugMessage: error.message }
+          : {}),
+      },
       { status: 500 }
     );
   }

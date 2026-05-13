@@ -51,6 +51,11 @@ function selectedProjectIdFromPath(pathname: string): string | null {
   return match[1];
 }
 
+function projectsRouteSegment(pathname: string): string | null {
+  const match = pathname.match(/^\/projects\/([^/]+)/);
+  return match?.[1] ?? null;
+}
+
 export default function DashboardLayout({
   children,
 }: {
@@ -67,11 +72,17 @@ export default function DashboardLayout({
     [projects, selectedProjectId]
   );
 
+  /** 路径里 /projects/:id 段变化时重新拉列表（如从「新建」进入新项目），避免 header 下拉仍为旧数据 */
+  const projectListFetchKey = useMemo(
+    () => `${session?.user?.id ?? ""}:${projectsRouteSegment(pathname) ?? ""}`,
+    [pathname, session?.user?.id]
+  );
+
   useEffect(() => {
     let ignore = false;
     async function fetchProjects() {
       try {
-        const response = await fetch("/api/projects");
+        const response = await fetch("/api/projects", { cache: "no-store" });
         if (!response.ok) return;
         const data = await response.json();
         if (ignore) return;
@@ -91,7 +102,7 @@ export default function DashboardLayout({
     return () => {
       ignore = true;
     };
-  }, []);
+  }, [projectListFetchKey]);
 
   const projectNavigation = selectedProjectId
     ? [

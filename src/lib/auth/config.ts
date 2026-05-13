@@ -86,6 +86,16 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           : 8 * 60 * 60;
         token.exp = Math.floor(Date.now() / 1000) + maxAge;
       }
+
+      // 每次签发 session 时从数据库同步 orgId，避免清库/删成员后 JWT 仍指向已删除的组织
+      const uid = token.id as string | undefined;
+      if (uid) {
+        const membership = await db.query.organizationMembers.findFirst({
+          where: eq(organizationMembers.userId, uid),
+        });
+        token.orgId = membership?.orgId;
+      }
+
       return token;
     },
     async session({ session, token }) {

@@ -57,11 +57,21 @@ export interface ScoringCriteria {
   evaluationMethod: "manual" | "automatic";
 }
 
-// 创建项目 Schema
+// 创建项目 Schema（与 POST /api/projects 一致：编号可省略，由服务端生成）
 export const createProjectSchema = z.object({
-  name: z.string().min(1, "项目名称不能为空"),
-  projectNo: z.string().min(1, "项目编号不能为空"),
-  description: z.string().optional(),
+  name: z.string().trim().min(1, "项目名称不能为空"),
+  projectNo: z.preprocess(
+    (v) => {
+      if (v === "" || v === undefined || v === null) return undefined;
+      if (typeof v === "string" && v.trim() === "") return undefined;
+      return v;
+    },
+    z.string().trim().min(1, "项目编号不能为空").optional(),
+  ),
+  description: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().optional(),
+  ),
   tenderType: z.string().optional(),
   budget: z.number().positive().optional(),
   deadline: z.string().optional(),
