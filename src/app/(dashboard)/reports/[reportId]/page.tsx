@@ -499,8 +499,8 @@ export default function ReportDetailPage() {
           <AlertCircle className="mb-4 h-12 w-12 text-muted-foreground" />
           <h3 className="mb-2 text-h5">报告不存在</h3>
           <p className="mb-4 text-center text-muted-foreground">请检查报告 ID 是否正确</p>
-          <Button variant="outline" onClick={() => router.push("/projects")}>
-            返回项目列表
+          <Button variant="outline" onClick={() => router.push("/reports")}>
+            返回报告列表
           </Button>
         </CardContent>
       </Card>
@@ -512,11 +512,11 @@ export default function ReportDetailPage() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <Link
-            href={`/projects/${report.project.id}`}
+            href="/reports"
             className="mb-2 inline-flex items-center text-sm text-muted-foreground hover:text-primary"
           >
             <ArrowLeft className="mr-1 h-4 w-4" />
-            返回项目详情
+            返回审查报告列表
           </Link>
           <h2 className="text-h2">审查报告</h2>
           <p className="text-muted-foreground">

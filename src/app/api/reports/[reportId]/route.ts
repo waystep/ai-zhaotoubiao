@@ -197,6 +197,11 @@ export async function GET(request: Request, context: RouteContext) {
     });
   } catch (error) {
     console.error("Failed to fetch review report:", error);
-    return NextResponse.json({ error: "Failed to fetch review report" }, { status: 500 });
+    const message = error instanceof Error ? error.message : String(error);
+    const isDev = process.env.NODE_ENV === "development";
+    return NextResponse.json(
+      { error: "Failed to fetch review report", ...(isDev && { details: message }) },
+      { status: 500 }
+    );
   }
 }

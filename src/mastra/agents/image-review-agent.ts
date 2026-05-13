@@ -43,7 +43,9 @@ export const imageReviewAgent = new Agent({
 - 0.5-0.69：需人工复核
 - 0.0-0.49：基本无风险
 `,
-  model: "alibaba-coding-plan-cn/qwen3.6-plus",
+  model: process.env.ALIBABA_CODING_PLAN_API_KEY
+    ? "alibaba-coding-plan-cn/qwen3.6-plus"
+    : "alibaba/qwen3.6-plus",
   tools: {},
 });
 

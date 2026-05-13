@@ -143,6 +143,15 @@ export default function ReportChatPage() {
 
   return (
     <div className="max-w-4xl mx-auto p-0 md:p-6 relative size-full min-h-[600px]">
+      <Button
+        variant="ghost"
+        onClick={() => router.push(`/reports/${reportId}`)}
+        className="mb-3"
+      >
+        <ArrowLeft className="mr-2 h-4 w-4" />
+        查看报告详情
+      </Button>
+
       {/* Header */}
       <div className="mb-4">
         <Card>
@@ -318,12 +327,6 @@ export default function ReportChatPage() {
           </div>
         </CardContent>
       </Card>
-
-      {/* Footer */}
-      <Button variant="ghost" onClick={() => router.push(`/reports/${reportId}`)} className="mt-4">
-        <ArrowLeft className="mr-2 h-4 w-4" />
-        查看报告详情
-      </Button>
     </div>
   );
 }

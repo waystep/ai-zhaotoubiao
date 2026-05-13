@@ -1,6 +1,11 @@
 export const reviewModelConfig = {
-  defaultModel: "alibaba-coding-plan-cn/qwen3.6-plus",
-  reasoningModel: "alibaba-coding-plan-cn/glm-5",
+  // 优先使用 coding-plan 路由；未配置时回退到常规 alibaba 路由
+  defaultModel: process.env.ALIBABA_CODING_PLAN_API_KEY
+    ? "alibaba-coding-plan-cn/qwen3.6-plus"
+    : "alibaba/qwen3.6-plus",
+  reasoningModel: process.env.ALIBABA_CODING_PLAN_API_KEY
+    ? "alibaba-coding-plan-cn/glm-5"
+    : "alibaba/glm-5",
   maxSteps: 30,
 } as const;
 

@@ -17,6 +17,9 @@
     "db:patch-documents": "tsx scripts/apply-documents-extraction-columns.ts",
     "db:patch-image-risk": "tsx scripts/apply-image-risk-analysis-table.ts",
     "db:patch-document-blocks": "tsx scripts/apply-document-blocks-columns.ts",
+    "db:patch-review-issues": "tsx scripts/apply-review-issues-columns.ts",
+    "db:patch-review-items": "tsx scripts/apply-review-items-tables.ts",
+    "db:patch-review-item-results": "tsx scripts/apply-review-item-results-tables.ts",
     "mastra:dev": "mastra dev",
     "mastra:build": "mastra build"
   },
