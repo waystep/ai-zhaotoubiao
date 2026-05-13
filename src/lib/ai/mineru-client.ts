@@ -114,15 +114,35 @@ export class MineruClient {
     formData.append("return_images", returnImages ? "true" : "false");
     formData.append("response_format_zip", "false");
 
-    const response = await fetch(`${this.baseUrl}/tasks`, {
-      method: "POST",
-      headers: this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {},
-      body: formData,
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${this.baseUrl}/tasks`, {
+        method: "POST",
+        headers: this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {},
+        body: formData,
+        signal: AbortSignal.timeout(this.timeout),
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "";
+      const causeMsg =
+        e instanceof Error && "cause" in e && e.cause instanceof Error
+          ? e.cause.message
+          : "";
+      const looksLikeNetwork =
+        msg === "fetch failed" ||
+        causeMsg.includes("ECONNREFUSED") ||
+        causeMsg.includes("ENOTFOUND") ||
+        causeMsg.includes("ETIMEDOUT");
+      const hint = looksLikeNetwork
+        ? "（通常为 MinerU 未启动或 MINERU_API_URL 不可达，请启动 MinerU 并核对环境变量，默认 http://127.0.0.1:8000）"
+        : "";
+      const inner = causeMsg ? `: ${causeMsg}` : msg ? `: ${msg}` : "";
+      throw new Error(`无法连接 MinerU ${this.baseUrl}/tasks${inner}${hint}`);
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`提交任务失败: ${response.status}`);
+      throw new Error(`提交任务失败: ${response.status} ${errorText.slice(0, 200)}`);
     }
 
     const result = await response.json();

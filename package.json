@@ -13,6 +13,10 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx src/lib/db/seed.ts",
+    "db:wipe": "tsx scripts/wipe-dev-db.ts",
+    "db:patch-documents": "tsx scripts/apply-documents-extraction-columns.ts",
+    "db:patch-image-risk": "tsx scripts/apply-image-risk-analysis-table.ts",
+    "db:patch-document-blocks": "tsx scripts/apply-document-blocks-columns.ts",
     "mastra:dev": "mastra dev",
     "mastra:build": "mastra build"
   },

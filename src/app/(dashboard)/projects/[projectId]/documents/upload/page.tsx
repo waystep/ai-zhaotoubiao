@@ -29,7 +29,6 @@ const DOC_TYPES = [
   { value: "tender_doc", label: "招标文件", color: "bg-blue-50 text-blue-700 border-blue-200" },
   { value: "legal_doc", label: "法律文件", color: "bg-purple-50 text-purple-700 border-purple-200" },
   { value: "bid_doc", label: "投标文件", color: "bg-green-50 text-green-700 border-green-200" },
-  { value: "review_report", label: "审查报告", color: "bg-orange-50 text-orange-700 border-orange-200" },
 ];
 
 // 根据文件名推测文档类型
@@ -55,12 +54,6 @@ function inferDocType(fileName: string): string {
       name.includes("协议") || name.includes("契约") || name.includes("合约") ||
       name.includes("legal") || name.includes("contract") || name.includes("agreement")) {
     return "legal_doc";
-  }
-
-  // 审查报告关键词
-  if (name.includes("审查") || name.includes("review") || name.includes("审计") ||
-      name.includes("评审") || name.includes("评估") || name.includes("报告")) {
-    return "review_report";
   }
 
   // 默认招标文件

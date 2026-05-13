@@ -39,7 +39,6 @@ const DOC_TYPE_FILTERS: { value: string; label: string; color: string }[] = [
   { value: "tender_doc", label: "招标文件", color: "bg-blue-50 text-blue-700 border-blue-200" },
   { value: "legal_doc", label: "法律文件", color: "bg-purple-50 text-purple-700 border-purple-200" },
   { value: "bid_doc", label: "投标文件", color: "bg-green-50 text-green-700 border-green-200" },
-  { value: "review_report", label: "审查报告", color: "bg-orange-50 text-orange-700 border-orange-200" },
 ];
 
 function initialTypeFilters(): Record<string, boolean> {
@@ -426,7 +425,9 @@ export default function ProjectDocumentsPage() {
                   size="sm"
                   variant="ghost"
                   className="h-7 px-2 text-xs flex-1 text-muted-foreground"
-                  onClick={() => setTypeFilterEnabled({ tender_doc: false, legal_doc: false, bid_doc: false, review_report: false })}
+                  onClick={() =>
+                    setTypeFilterEnabled(Object.fromEntries(DOC_TYPE_FILTERS.map((t) => [t.value, false])))
+                  }
                 >
                   清空
                 </Button>
