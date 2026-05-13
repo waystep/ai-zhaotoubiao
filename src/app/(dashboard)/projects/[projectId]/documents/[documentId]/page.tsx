@@ -26,7 +26,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { PdfViewer, type IssueLocation } from "@/components/document/pdf-viewer";
-import { ExtractionItemManager } from "@/components/document/extraction-item-manager";
 import { useToast } from "@/hooks/use-toast";
 
 interface ParsedBlock {
@@ -72,15 +71,11 @@ interface DocumentDetail {
 
 interface ExtractedItem {
   id: string;
-  itemNo?: string | null;
   title: string;
-  description: string;
-  itemType?: string;
-  itemCategory?: string | null; // "review" | "response"
-  responseType?: string;
-  consequence?: string | null;
-  legalReference?: string | null;
-  extractionConfidence?: string | number | null;
+  checkpoint: string;
+  section?: string | null; // "技术标" | "商务标"
+  consequence?: string | number | null;
+  sourceBlockId?: string | null;
   sourceBlock?: ParsedBlock | null;
   location?: {
     pageNumber?: number;
@@ -90,16 +85,13 @@ interface ExtractedItem {
 }
 
 interface ExtractionResult {
-  items: ExtractedItem[]; // unified items from extraction_items table
-  reviewItems: ExtractedItem[]; // backward compat
-  responseItems: ExtractedItem[];
+  items: ExtractedItem[];
   extractionStatus?: string;
   extractionError?: string | null;
   summary?: {
     total: number;
-    reviewTotal: number;
-    responseTotal: number;
-    itemTypes: string[];
+    titles: string[];
+    sections: string[];
   };
 }
 
@@ -230,8 +222,6 @@ export default function DocumentDetailPage() {
   const [parsedResult, setParsedResult] = useState<ParsedResult | null>(null);
   const [extractionResult, setExtractionResult] = useState<ExtractionResult>({
     items: [],
-    reviewItems: [],
-    responseItems: [],
   });
   const [imageRiskResult, setImageRiskResult] = useState<ImageRiskResult>({
     images: [],
@@ -244,7 +234,8 @@ export default function DocumentDetailPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [focusedBlock, setFocusedBlock] = useState<ParsedBlock | null>(null);
   const [itemFocus, setItemFocus] = useState<IssueLocation | null>(null);
-  const [activePopover, setActivePopover] = useState<{ title: string; desc: string; consequence?: string; legalRef?: string; page: number; blockIdx: number } | null>(null);
+  const [activePopover, setActivePopover] = useState<{ title: string; desc: string; consequence?: string; page: number; blockIdx: number } | null>(null);
+  const [embeddingStatus, setEmbeddingStatus] = useState<{ has: boolean; model?: string; loading: boolean }>({ has: false, loading: false });
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasFetchedRef = useRef(false);
 
@@ -254,9 +245,7 @@ export default function DocumentDetailPage() {
       if (!response.ok) return;
       const data = await response.json();
       setExtractionResult({
-        items: data.items ?? data.reviewItems?.concat(data.responseItems ?? []) ?? [],
-        reviewItems: data.reviewItems ?? [],
-        responseItems: data.responseItems ?? [],
+        items: data.items ?? [],
         extractionStatus: data.document?.extractionStatus,
         extractionError: data.document?.extractionError,
         summary: data.summary,
@@ -332,19 +321,40 @@ export default function DocumentDetailPage() {
     }
   }, []);
 
-  const ensureEmbeddings = useCallback(async () => {
+  const checkEmbeddings = useCallback(async () => {
     try {
-      // 检查是否已有嵌入
       const res = await fetch(`/api/documents/${documentId}/embeddings`);
       if (!res.ok) return;
       const data = await res.json();
-      if (data.hasEmbeddings) return; // 已有，跳过
-      // 触发后台生成
-      fetch(`/api/documents/${documentId}/embeddings`, { method: "POST" }).catch(() => {});
-    } catch {
-      // 静默失败，不影响主流程
-    }
+      setEmbeddingStatus({ has: data.hasEmbeddings, model: data.model, loading: false });
+      return data;
+    } catch { return null; }
   }, [documentId]);
+
+  const ensureEmbeddings = useCallback(async () => {
+    const data = await checkEmbeddings();
+    if (!data || data.hasEmbeddings) return;
+    // 触发后台生成
+    setEmbeddingStatus((p) => ({ ...p, loading: true }));
+    try {
+      const res = await fetch(`/api/documents/${documentId}/embeddings`, { method: "POST" });
+      if (res.ok) await checkEmbeddings();
+    } catch {} finally {
+      setEmbeddingStatus((p) => ({ ...p, loading: false }));
+    }
+  }, [documentId, checkEmbeddings]);
+
+  const handleRegenEmbeddings = useCallback(async () => {
+    setEmbeddingStatus((p) => ({ ...p, loading: true }));
+    try {
+      const res = await fetch(`/api/documents/${documentId}/embeddings`, { method: "POST" });
+      if (res.ok) {
+        toast({ title: "Embedding 已重新生成" });
+        await checkEmbeddings();
+      }
+    } catch { toast({ title: "生成失败", variant: "destructive" }); }
+    finally { setEmbeddingStatus((p) => ({ ...p, loading: false })); }
+  }, [documentId, toast, checkEmbeddings]);
 
   const startPolling = useCallback(() => {
     stopPolling();
@@ -796,15 +806,15 @@ export default function DocumentDetailPage() {
 
                 {shouldShowExtractedTab ? (
                   <TabsContent value="extracted" className="mt-4">
-                    <div className="mb-3 grid grid-cols-2 gap-2 text-xs">
-                      <div className="rounded-md bg-muted/50 p-2">
-                        <div className="text-muted-foreground">审查项</div>
-                        <div className="text-h5">{extractionResult.summary?.reviewTotal ?? extractionResult.reviewItems.length}</div>
-                      </div>
-                      <div className="rounded-md bg-muted/50 p-2">
-                        <div className="text-muted-foreground">应答项</div>
-                        <div className="text-h5">{extractionResult.summary?.responseTotal ?? extractionResult.responseItems.length}</div>
-                      </div>
+                    <div className="mb-3 rounded-md bg-muted/50 p-2 text-xs">
+                      <span className="text-muted-foreground">共 </span>
+                      <span className="font-semibold">{extractionResult.summary?.total ?? extractionResult.items.length}</span>
+                      <span className="text-muted-foreground"> 条审查项</span>
+                      {extractionResult.summary?.sections?.length ? (
+                        <span className="ml-2 text-muted-foreground">
+                          | 标段: {extractionResult.summary.sections.join(", ")}
+                        </span>
+                      ) : null}
                     </div>
                     {totalExtracted === 0 ? (
                       <div className="mb-4 rounded-md border border-dashed p-4">
@@ -832,18 +842,63 @@ export default function DocumentDetailPage() {
                           发起提取
                         </Button>
                       </div>
-                    ) : null}
+                    ) : (
+                      <div className="mb-3 flex items-center justify-between gap-2">
+                        <span className="text-xs text-muted-foreground">
+                          已提取 {totalExtracted} 条，可重新发起以刷新结果
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          {/* Embedding 状态 */}
+                          {embeddingStatus.has ? (
+                            <span className="text-xs text-muted-foreground" title={`模型: ${embeddingStatus.model || "unknown"}`}>
+                              RAG ✓
+                              <button
+                                type="button"
+                                className="ml-1 underline hover:text-foreground"
+                                onClick={handleRegenEmbeddings}
+                                disabled={embeddingStatus.loading}
+                              >
+                                {embeddingStatus.loading ? "..." : "重建"}
+                              </button>
+                            </span>
+                          ) : embeddingStatus.loading ? (
+                            <span className="text-xs text-muted-foreground">RAG <Loader2 className="inline h-3 w-3 animate-spin" /></span>
+                          ) : (
+                            <button
+                              type="button"
+                              className="text-xs text-amber-600 underline hover:text-amber-700"
+                              onClick={ensureEmbeddings}
+                            >
+                              生成RAG
+                            </button>
+                          )}
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={handleExtract}
+                            disabled={isExtracting}
+                          >
+                          {isExtracting ? (
+                            <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Sparkles className="mr-1 h-3.5 w-3.5" />
+                          )}
+                          重新提取
+                        </Button>
+                        </div>
+                      </div>
+                    )}
                     <div className="max-h-[calc(100vh-14rem)] space-y-3 overflow-y-auto pr-1">
                       {extractionResult.items.map((item) => {
-                        const isReview = item.itemCategory === "review";
                         const pageNumber = item.location?.pageNumber ?? item.sourceBlock?.pageNumber;
                         const blockIndex = item.location?.blockIndex ?? item.sourceBlock?.blockIndex;
-                        const confidence = confidenceLabel(item.extractionConfidence);
+                        const consequenceWeight = item.consequence != null ? Number(item.consequence) : 0;
                         // 通过 sourceBlockId 从已加载的 blocks 中查找真实 block 信息
                         const resolvedBlock =
-                          (item as any).sourceBlockId && parsedResult?.blocks
+                          item.sourceBlockId && parsedResult?.blocks
                             ? parsedResult.blocks.find(
-                                (b: any) => b.id === (item as any).sourceBlockId
+                                (b: ParsedBlock) => b.id === item.sourceBlockId
                               )
                             : null;
                         const locPage =
@@ -882,9 +937,8 @@ export default function DocumentDetailPage() {
                               });
                               setActivePopover({
                                 title: item.title,
-                                desc: item.description,
-                                consequence: item.consequence || undefined,
-                                legalRef: item.legalReference || undefined,
+                                desc: item.checkpoint,
+                                consequence: consequenceWeight > 0 ? `权重: ${consequenceWeight.toFixed(2)}` : undefined,
                                 page: locPage,
                                 blockIdx: locIdx,
                               });
@@ -898,38 +952,25 @@ export default function DocumentDetailPage() {
                             }
                           >
                             <div className="mb-1 flex flex-wrap items-center gap-1.5">
-                              <Badge variant={isReview ? "destructive" : "secondary"} className="text-xs">
-                                {isReview ? "审查项" : "应答项"}
-                              </Badge>
-                              <Badge variant="secondary" className="text-xs">{item.itemType}</Badge>
-                              {(item as any).bidSection && (
+                              <Badge variant="secondary" className="text-xs">{item.title}</Badge>
+                              {item.section && (
                                 <Badge variant="outline" className="border-blue-300 text-blue-700 text-xs">
-                                  {(item as any).bidSection}
+                                  {item.section}
                                 </Badge>
                               )}
-                              {item.itemNo && <Badge variant="outline" className="text-xs">{item.itemNo}</Badge>}
+                              {consequenceWeight > 0 && (
+                                <Badge variant="outline" className="text-xs text-red-500">
+                                  权重: {consequenceWeight.toFixed(2)}
+                                </Badge>
+                              )}
                             </div>
                             <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
                               {pageNumber ? <span>第{pageNumber}页</span> : null}
                               {blockIndex != null ? <span>#{blockIndex}</span> : null}
-                              {confidence ? (
-                                <span className="ml-auto">置信度 {confidence}</span>
-                              ) : null}
                             </div>
-                            <div className="text-sm font-medium leading-6">{item.title}</div>
-                            <p className="mt-1 line-clamp-2 text-sm leading-6 text-muted-foreground">
-                              {item.description}
+                            <p className="line-clamp-2 text-sm leading-6 text-muted-foreground">
+                              {item.checkpoint}
                             </p>
-                            {isReview && item.consequence ? (
-                              <p className="mt-1 text-xs text-destructive">
-                                后果：{item.consequence}
-                              </p>
-                            ) : null}
-                            {isReview && item.legalReference ? (
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                依据：{item.legalReference}
-                              </p>
-                            ) : null}
                           </button>
                         );
                       })}

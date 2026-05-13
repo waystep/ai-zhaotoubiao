@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -23,35 +23,27 @@ import {
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 
 type ExtItem = {
   id: string;
   documentId: string;
-  itemCategory?: string | null;
-  bidSection?: string | null;
-  itemType?: string | null;
-  itemNo?: string | null;
+  section?: string | null;
   title?: string | null;
-  description?: string | null;
+  checkpoint?: string | null;
   consequence?: string | null;
-  legalReference?: string | null;
   location?: { pageNumber?: number; blockIndex?: number } | null;
-  extractionConfidence?: string | null;
   extractedBy?: string | null;
 };
 
 type DocInfo = { id: string; name: string; docType: string };
 
 const defaultForm = {
-  itemCategory: "review" as const,
-  bidSection: "",
-  itemType: "",
-  itemNo: "",
+  section: "" as string,
   title: "",
-  description: "",
-  consequence: "",
-  legalReference: "",
+  checkpoint: "",
+  consequence: 0,
   pageNumber: 0,
   blockIndex: 0,
   documentId: "",
@@ -67,7 +59,8 @@ export default function ExtractionItemsPage() {
   const [docs, setDocs] = useState<DocInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterDocId, setFilterDocId] = useState("");
-  const [filterType, setFilterType] = useState("");
+  const [filterSection, setFilterSection] = useState("");
+  const [filterTitle, setFilterTitle] = useState("");
   const [search, setSearch] = useState("");
 
   const [open, setOpen] = useState(false);
@@ -75,6 +68,8 @@ export default function ExtractionItemsPage() {
   const [form, setForm] = useState(defaultForm);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchDeleting, setBatchDeleting] = useState(false);
 
   const fetchDocs = useCallback(async () => {
     try {
@@ -89,21 +84,31 @@ export default function ExtractionItemsPage() {
   const fetchItems = useCallback(async () => {
     setLoading(true);
     try {
-      // Fetch extraction items from all documents
       const allItems: (ExtItem & { documentName?: string })[] = [];
       const res = await fetch(`/api/projects/${projectId}/documents`);
       if (!res.ok) throw new Error("Failed to fetch documents");
       const data = await res.json();
       const documents: DocInfo[] = data.documents || [];
 
-      for (const doc of documents) {
-        const iRes = await fetch(`/api/documents/${doc.id}/extraction-items`);
-        if (iRes.ok) {
-          const iData = await iRes.json();
-          for (const item of iData.items || []) {
-            allItems.push({ ...item, documentName: doc.name, documentId: doc.id });
+      const results = await Promise.all(
+        documents.map(async (doc) => {
+          try {
+            const iRes = await fetch(`/api/documents/${doc.id}/extraction-items`);
+            if (!iRes.ok) return [];
+            const iData = await iRes.json();
+            return (iData.items || []).map((item: ExtItem) => ({
+              ...item,
+              documentName: doc.name,
+              documentId: doc.id,
+            }));
+          } catch {
+            return [];
           }
-        }
+        })
+      );
+
+      for (const docItems of results) {
+        allItems.push(...docItems);
       }
       setItems(allItems);
     } catch (e) {
@@ -115,18 +120,23 @@ export default function ExtractionItemsPage() {
 
   useEffect(() => { fetchDocs(); fetchItems(); }, [fetchDocs, fetchItems]);
 
+  // 筛选条件变更时清空选择
+  useEffect(() => { setSelectedIds(new Set()); }, [filterDocId, filterSection, filterTitle, search]);
+
   const filtered = items.filter((item) => {
     if (filterDocId && item.documentId !== filterDocId) return false;
-    if (filterType && item.itemType !== filterType) return false;
+    if (filterSection && item.section !== filterSection) return false;
+    if (filterTitle && item.title !== filterTitle) return false;
     if (search) {
       const s = search.toLowerCase();
-      const hay = `${item.title || ""} ${item.description || ""} ${item.itemNo || ""}`.toLowerCase();
+      const hay = `${item.title || ""} ${item.checkpoint || ""}`.toLowerCase();
       if (!hay.includes(s)) return false;
     }
     return true;
   });
 
-  const itemTypes = [...new Set(items.map((i) => i.itemType).filter(Boolean))] as string[];
+  const itemTitles = [...new Set(items.map((i) => i.title).filter(Boolean))] as string[];
+  const itemSections = [...new Set(items.map((i) => i.section).filter(Boolean))] as string[];
 
   const resetForm = useCallback(() => {
     setForm({ ...defaultForm, documentId: filterDocId || docs[0]?.id || "" });
@@ -136,14 +146,10 @@ export default function ExtractionItemsPage() {
   const openEdit = useCallback((item: ExtItem & { documentName?: string }) => {
     setEditing(item);
     setForm({
-      itemCategory: (item.itemCategory as any) || "review",
-      bidSection: item.bidSection || "",
-      itemType: item.itemType || "",
-      itemNo: item.itemNo || "",
+      section: item.section || "",
       title: item.title || "",
-      description: item.description || "",
-      consequence: item.consequence || "",
-      legalReference: item.legalReference || "",
+      checkpoint: item.checkpoint || "",
+      consequence: item.consequence ? Number(item.consequence) : 0,
       pageNumber: item.location?.pageNumber || 0,
       blockIndex: item.location?.blockIndex || 0,
       documentId: item.documentId,
@@ -153,21 +159,17 @@ export default function ExtractionItemsPage() {
 
   const handleSave = useCallback(async () => {
     if (!form.title?.trim()) { toast({ title: "标题不能为空", variant: "destructive" }); return; }
+    if (!form.checkpoint?.trim()) { toast({ title: "检查点不能为空", variant: "destructive" }); return; }
     if (!form.documentId) { toast({ title: "请选择关联文档", variant: "destructive" }); return; }
     setSaving(true);
     try {
       const body = {
         projectId,
-        itemCategory: form.itemCategory,
-        bidSection: form.bidSection || null,
-        itemType: form.itemType || "手动添加",
-        itemNo: form.itemNo || null,
+        section: form.section || null,
         title: form.title,
-        description: form.description,
+        checkpoint: form.checkpoint,
         consequence: form.consequence || null,
-        legalReference: form.legalReference || null,
         location: { pageNumber: form.pageNumber, blockIndex: form.blockIndex },
-        extractionConfidence: editing ? undefined : 0.9,
       };
 
       const method = editing ? "PATCH" : "POST";
@@ -198,6 +200,42 @@ export default function ExtractionItemsPage() {
     } finally { setDeleting(null); }
   }, [toast, fetchItems]);
 
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAll = useCallback(() => {
+    setSelectedIds((prev) => {
+      if (prev.size === filtered.length) return new Set();
+      return new Set(filtered.map((i) => i.id));
+    });
+  }, [filtered]);
+
+  const handleBatchDelete = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`确定删除选中的 ${selectedIds.size} 条审查项？此操作不可撤销。`)) return;
+    setBatchDeleting(true);
+    try {
+      const res = await fetch("/api/extraction-items/batch-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [...selectedIds] }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || "批量删除失败");
+      toast({ title: `已删除 ${selectedIds.size} 条审查项` });
+      setSelectedIds(new Set());
+      fetchItems();
+    } catch (e: any) {
+      toast({ title: "批量删除失败", description: e.message, variant: "destructive" });
+    } finally { setBatchDeleting(false); }
+  }, [selectedIds, toast, fetchItems]);
+
+  const isAllSelected = filtered.length > 0 && selectedIds.size === filtered.length;
+
   return (
     <div className="space-y-4">
       <div>
@@ -211,22 +249,22 @@ export default function ExtractionItemsPage() {
           返回
         </Button>
         <h2 className="text-h2">审查项管理</h2>
-        <p className="text-muted-foreground">管理项目中所有文档的审查项和应答项</p>
+        <p className="text-muted-foreground">管理项目中所有文档的审查项和检查点</p>
       </div>
 
       {/* Filter bar */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-2.5 top-2 h-4 w-4 text-muted-foreground" />
           <Input
             className="pl-8 h-9 text-sm"
-            placeholder="搜索标题/描述..."
+            placeholder="搜索标题/检查点..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
         <Select value={filterDocId || "all"} onValueChange={(v) => setFilterDocId(v === "all" ? "" : v)}>
-          <SelectTrigger className="w-48">
+          <SelectTrigger className="w-44">
             <SelectValue placeholder="全部文档" />
           </SelectTrigger>
           <SelectContent>
@@ -236,25 +274,49 @@ export default function ExtractionItemsPage() {
             ))}
           </SelectContent>
         </Select>
-        <Select value={filterType || "all"} onValueChange={(v) => setFilterType(v === "all" ? "" : v)}>
-          <SelectTrigger className="w-40">
+        <Select value={filterSection || "all"} onValueChange={(v) => setFilterSection(v === "all" ? "" : v)}>
+          <SelectTrigger className="w-28">
+            <SelectValue placeholder="全部标段" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">全部标段</SelectItem>
+            {itemSections.map((s) => (
+              <SelectItem key={s} value={s}>{s}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={filterTitle || "all"} onValueChange={(v) => setFilterTitle(v === "all" ? "" : v)}>
+          <SelectTrigger className="w-36">
             <SelectValue placeholder="全部类型" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">全部类型</SelectItem>
-            {itemTypes.map((t) => (
+            {itemTitles.map((t) => (
               <SelectItem key={t} value={t}>{t}</SelectItem>
             ))}
           </SelectContent>
         </Select>
-        <Button
-          size="sm"
-          className="ml-auto"
-          onClick={() => { resetForm(); setOpen(true); }}
-        >
-          <Plus className="mr-1 h-4 w-4" />
-          手动添加
-        </Button>
+        {selectedIds.size > 0 ? (
+          <Button
+            size="sm"
+            variant="destructive"
+            className="ml-auto"
+            onClick={handleBatchDelete}
+            disabled={batchDeleting}
+          >
+            {batchDeleting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Trash2 className="mr-1 h-4 w-4" />}
+            删除选中 ({selectedIds.size})
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            className="ml-auto"
+            onClick={() => { resetForm(); setOpen(true); }}
+          >
+            <Plus className="mr-1 h-4 w-4" />
+            手动添加
+          </Button>
+        )}
       </div>
 
       {/* Items table */}
@@ -267,32 +329,30 @@ export default function ExtractionItemsPage() {
         </CardContent></Card>
       ) : (
         <div className="rounded-lg border overflow-hidden">
-          <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-3 bg-muted/50 px-4 py-2.5 text-xs font-medium text-muted-foreground">
-            <div>标题 / 描述</div>
-            <div className="w-16 text-center">类别</div>
-            <div className="w-20 text-center">类型</div>
+          <div className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-3 bg-muted/50 px-4 py-2.5 text-xs font-medium text-muted-foreground items-center">
+            <Checkbox checked={isAllSelected} onCheckedChange={toggleSelectAll} />
+            <div>标题 / 检查点</div>
+            <div className="w-16 text-center">标段</div>
             <div className="w-28 text-center">关联文档</div>
             <div className="w-16 text-center">操作</div>
           </div>
           <div className="divide-y">
             {filtered.map((item) => (
-              <div key={item.id} className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-3 px-4 py-2.5 items-center hover:bg-muted/20">
+              <div key={item.id} className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-3 px-4 py-2.5 items-center hover:bg-muted/20">
+                <Checkbox checked={selectedIds.has(item.id)} onCheckedChange={() => toggleSelect(item.id)} />
                 <div className="min-w-0">
                   <div className="text-sm font-medium truncate">{item.title}</div>
-                  <p className="text-xs text-muted-foreground line-clamp-1">{item.description}</p>
-                  <div className="mt-0.5 flex flex-wrap gap-1">
-                    {item.bidSection && <Badge variant="outline" className="text-xs border-blue-300 text-blue-700">{item.bidSection}</Badge>}
-                    {item.itemNo && <Badge variant="outline" className="text-xs">{item.itemNo}</Badge>}
-                    {item.consequence && <Badge variant="outline" className="text-xs text-red-500">后果: {item.consequence}</Badge>}
-                  </div>
+                  <p className="text-xs text-muted-foreground line-clamp-1">{item.checkpoint}</p>
+                  {item.consequence != null && Number(item.consequence) > 0 && (
+                    <Badge variant="outline" className="text-xs text-red-500 mt-0.5">
+                      权重: {Number(item.consequence).toFixed(2)}
+                    </Badge>
+                  )}
                 </div>
                 <div className="w-16 text-center">
-                  <Badge variant={item.itemCategory !== "response" ? "destructive" : "secondary"} className="text-xs">
-                    {item.itemCategory !== "response" ? "审查项" : "应答项"}
-                  </Badge>
-                </div>
-                <div className="w-20 text-center">
-                  <Badge variant="secondary" className="text-xs">{item.itemType}</Badge>
+                  {item.section && (
+                    <Badge variant="outline" className="text-xs border-blue-300 text-blue-700">{item.section}</Badge>
+                  )}
                 </div>
                 <div className="w-28 text-center text-xs text-muted-foreground truncate" title={item.documentName}>
                   {item.documentName}
@@ -316,90 +376,77 @@ export default function ExtractionItemsPage() {
       <Dialog open={open} onOpenChange={(v) => { if (!v) { setOpen(false); resetForm(); } }}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>{editing ? "编辑提取项" : "手动添加提取项"}</DialogTitle>
-            <DialogDescription>{editing ? "修改提取项" : "添加自定义审查项或应答项"}</DialogDescription>
+            <DialogTitle>{editing ? "编辑审查项" : "手动添加审查项"}</DialogTitle>
+            <DialogDescription>
+              {editing ? "修改审查项的内容" : "添加自定义审查项，关联到指定文档"}
+            </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-3 py-2">
-            <div>
-              <label className="text-xs text-muted-foreground">关联文档 *</label>
-              <select
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-                value={form.documentId}
-                onChange={(e) => setForm({ ...form, documentId: e.target.value })}
-              >
-                <option value="">选择文档...</option>
-                {docs.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </select>
+          <div className="grid gap-4 py-2">
+            {/* 关联文档 */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">关联文档 <span className="text-destructive">*</span></label>
+              <Select value={form.documentId || undefined} onValueChange={(v) => setForm({ ...form, documentId: v })}>
+                <SelectTrigger><SelectValue placeholder="选择文档..." /></SelectTrigger>
+                <SelectContent>
+                  {docs.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              <div>
-                <label className="text-xs text-muted-foreground">类别</label>
-                <select className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-                  value={form.itemCategory} onChange={(e) => setForm({ ...form, itemCategory: e.target.value as any })}>
-                  <option value="review">审查项</option>
-                  <option value="response">应答项</option>
-                </select>
+
+            {/* 标段 / 标题 */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">标段</label>
+                <Select value={form.section || "all"} onValueChange={(v) => setForm({ ...form, section: v === "all" ? "" : v })}>
+                  <SelectTrigger><SelectValue placeholder="不限" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">不限</SelectItem>
+                    <SelectItem value="技术标">技术标</SelectItem>
+                    <SelectItem value="商务标">商务标</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-              <div>
-                <label className="text-xs text-muted-foreground">标段</label>
-                <select className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-                  value={form.bidSection} onChange={(e) => setForm({ ...form, bidSection: e.target.value })}>
-                  <option value="">不限</option>
-                  <option value="技术标">技术标</option>
-                  <option value="商务标">商务标</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-xs text-muted-foreground">类型</label>
-                <Input className="mt-1 h-8 text-sm" value={form.itemType}
-                  onChange={(e) => setForm({ ...form, itemType: e.target.value })} placeholder="如：资质要求" />
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">标题 <span className="text-destructive">*</span></label>
+                <Input value={form.title}
+                  onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="如：完整性" />
               </div>
             </div>
-            <div>
-              <label className="text-xs text-muted-foreground">条款编号</label>
-              <Input className="mt-1 h-8 text-sm" value={form.itemNo}
-                onChange={(e) => setForm({ ...form, itemNo: e.target.value })} placeholder="如：第三章第5条" />
+
+            {/* 检查点 */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">检查点 <span className="text-destructive">*</span></label>
+              <Textarea rows={3} value={form.checkpoint}
+                onChange={(e) => setForm({ ...form, checkpoint: e.target.value })}
+                placeholder="如：技术标必须包含施工组织设计、技术方案..." />
             </div>
-            <div>
-              <label className="text-xs text-muted-foreground">标题 *</label>
-              <Input className="mt-1 h-8 text-sm" value={form.title}
-                onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="审查项标题" />
+
+            {/* 权重 */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">权重</label>
+              <Input type="number" min={0} max={1} step={0.1} value={form.consequence}
+                onChange={(e) => setForm({ ...form, consequence: Number(e.target.value) })}
+                placeholder="0 ~ 1，如 0.6" />
             </div>
-            <div>
-              <label className="text-xs text-muted-foreground">描述</label>
-              <Textarea className="mt-1 text-sm" rows={3} value={form.description}
-                onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="详细描述..." />
-            </div>
-            {form.itemCategory === "review" && (
-              <>
-                <div>
-                  <label className="text-xs text-muted-foreground">不满足后果</label>
-                  <Input className="mt-1 h-8 text-sm" value={form.consequence}
-                    onChange={(e) => setForm({ ...form, consequence: e.target.value })} placeholder="如：废标" />
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground">法律依据</label>
-                  <Input className="mt-1 h-8 text-sm" value={form.legalReference}
-                    onChange={(e) => setForm({ ...form, legalReference: e.target.value })} placeholder="法律法规条款..." />
-                </div>
-              </>
-            )}
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-xs text-muted-foreground">页码</label>
-                <Input className="mt-1 h-8 text-sm" type="number" min={0} value={form.pageNumber}
+
+            {/* 位置信息 */}
+            <div className="border-t pt-1" />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">页码</label>
+                <Input type="number" min={0} value={form.pageNumber}
                   onChange={(e) => setForm({ ...form, pageNumber: Number(e.target.value) })} />
               </div>
-              <div>
-                <label className="text-xs text-muted-foreground">区块索引</label>
-                <Input className="mt-1 h-8 text-sm" type="number" min={0} value={form.blockIndex}
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">区块索引</label>
+                <Input type="number" min={0} value={form.blockIndex}
                   onChange={(e) => setForm({ ...form, blockIndex: Number(e.target.value) })} />
               </div>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => { setOpen(false); resetForm(); }}>取消</Button>
-            <Button size="sm" onClick={handleSave} disabled={saving}>
+            <Button variant="outline" onClick={() => { setOpen(false); resetForm(); }}>取消</Button>
+            <Button onClick={handleSave} disabled={saving}>
               {saving ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
               {editing ? "保存" : "添加"}
             </Button>

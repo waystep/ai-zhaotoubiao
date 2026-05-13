@@ -39,19 +39,11 @@ export async function POST(request: Request, context: RouteContext) {
     .values({
       documentId,
       projectId: body.projectId,
-      itemCategory: body.itemCategory || "review",
-      bidSection: body.bidSection || null,
-      itemType: body.itemType || "手动添加",
-      itemNo: body.itemNo || null,
+      section: body.section || null,
       title: body.title || "",
-      description: body.description || "",
+      checkpoint: body.checkpoint || "",
+      consequence: body.consequence != null ? String(body.consequence) : null,
       location: body.location || { pageNumber: 0, blockIndex: 0 },
-      consequence: body.consequence || null,
-      legalReference: body.legalReference || null,
-      requirements: body.requirements || {},
-      responseRequirements: body.responseRequirements || {},
-      scoringInfo: body.scoringInfo || {},
-      extractionConfidence: body.extractionConfidence != null ? String(body.extractionConfidence) : null,
       extractedBy: "manual",
     })
     .returning();

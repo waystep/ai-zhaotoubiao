@@ -1,11 +1,18 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Plus, Pencil, Trash2, Loader2, X } from "lucide-react";
+import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -18,15 +25,10 @@ import { useToast } from "@/hooks/use-toast";
 
 type ExtItem = {
   id: string;
-  itemCategory?: string | null;
-  bidSection?: string | null;
-  itemType?: string | null;
-  itemNo?: string | null;
+  section?: string | null;
   title?: string | null;
-  description?: string | null;
+  checkpoint?: string | null;
   consequence?: string | null;
-  legalReference?: string | null;
-  extractionConfidence?: string | null;
   location?: { pageNumber?: number; blockIndex?: number } | null;
   extractedBy?: string | null;
 };
@@ -39,14 +41,10 @@ interface Props {
 }
 
 const defaultForm = {
-  itemCategory: "review" as const,
-  bidSection: "",
-  itemType: "",
-  itemNo: "",
+  section: "" as string,
   title: "",
-  description: "",
-  consequence: "",
-  legalReference: "",
+  checkpoint: "",
+  consequence: 0,
   pageNumber: 0,
   blockIndex: 0,
 };
@@ -67,14 +65,10 @@ export function ExtractionItemManager({ documentId, projectId, items, onRefresh 
   const openEdit = useCallback((item: ExtItem) => {
     setEditing(item);
     setForm({
-      itemCategory: (item.itemCategory as any) || "review",
-      bidSection: item.bidSection || "",
-      itemType: item.itemType || "",
-      itemNo: item.itemNo || "",
+      section: item.section || "",
       title: item.title || "",
-      description: item.description || "",
-      consequence: item.consequence || "",
-      legalReference: item.legalReference || "",
+      checkpoint: item.checkpoint || "",
+      consequence: item.consequence ? Number(item.consequence) : 0,
       pageNumber: item.location?.pageNumber || 0,
       blockIndex: item.location?.blockIndex || 0,
     });
@@ -86,20 +80,19 @@ export function ExtractionItemManager({ documentId, projectId, items, onRefresh 
       toast({ title: "标题不能为空", variant: "destructive" });
       return;
     }
+    if (!form.checkpoint.trim()) {
+      toast({ title: "检查点不能为空", variant: "destructive" });
+      return;
+    }
     setSaving(true);
     try {
       const body = {
         projectId,
-        itemCategory: form.itemCategory,
-        bidSection: form.bidSection || null,
-        itemType: form.itemType || "手动添加",
-        itemNo: form.itemNo || null,
+        section: form.section || null,
         title: form.title,
-        description: form.description,
+        checkpoint: form.checkpoint,
         consequence: form.consequence || null,
-        legalReference: form.legalReference || null,
         location: { pageNumber: form.pageNumber, blockIndex: form.blockIndex },
-        extractionConfidence: editing ? undefined : 0.9, // 手动添加高置信度
       };
 
       const method = editing ? "PATCH" : "POST";
@@ -147,7 +140,7 @@ export function ExtractionItemManager({ documentId, projectId, items, onRefresh 
   return (
     <>
       <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-medium">提取项管理</span>
+        <span className="text-sm font-medium">审查项</span>
         <Button
           size="sm"
           variant="outline"
@@ -165,19 +158,17 @@ export function ExtractionItemManager({ documentId, projectId, items, onRefresh 
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-1.5 mb-1">
-                  <Badge variant={item.itemCategory === "review" ? "destructive" : "secondary"} className="text-xs">
-                    {item.itemCategory === "review" ? "审查项" : "应答项"}
-                  </Badge>
-                  <Badge variant="secondary" className="text-xs">{item.itemType}</Badge>
-                  {item.bidSection && (
-                    <Badge variant="outline" className="text-xs border-blue-300 text-blue-700">{item.bidSection}</Badge>
+                  <Badge variant="secondary" className="text-xs">{item.title}</Badge>
+                  {item.section && (
+                    <Badge variant="outline" className="text-xs border-blue-300 text-blue-700">{item.section}</Badge>
                   )}
-                  {item.extractedBy === "manual" && (
-                    <Badge variant="outline" className="text-xs text-muted-foreground">手动</Badge>
+                  {item.consequence != null && Number(item.consequence) > 0 && (
+                    <Badge variant="outline" className="text-xs text-red-500">
+                      权重: {Number(item.consequence).toFixed(2)}
+                    </Badge>
                   )}
                 </div>
-                <div className="font-medium truncate">{item.title}</div>
-                <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{item.description}</p>
+                <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{item.checkpoint}</p>
               </div>
               <div className="flex shrink-0 gap-1">
                 <Button
@@ -210,111 +201,68 @@ export function ExtractionItemManager({ documentId, projectId, items, onRefresh 
       <Dialog open={open} onOpenChange={(v) => { if (!v) { setOpen(false); resetForm(); } }}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>{editing ? "编辑提取项" : "手动添加提取项"}</DialogTitle>
+            <DialogTitle>{editing ? "编辑审查项" : "手动添加审查项"}</DialogTitle>
             <DialogDescription>
-              {editing ? "修改提取项的内容" : "添加一个自定义的审查项或应答项"}
+              {editing ? "修改审查项的内容" : "添加自定义审查项"}
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-3 py-2">
-            <div className="grid grid-cols-3 gap-2">
-              <div>
-                <label className="text-xs text-muted-foreground">类别</label>
-                <select
-                  className="h-9 rounded-md border border-input bg-background px-3 text-sm w-full"
-                  value={form.itemCategory}
-                  onChange={(e) => setForm({ ...form, itemCategory: e.target.value as any })}
-                >
-                  <option value="review">审查项</option>
-                  <option value="response">应答项</option>
-                </select>
+          <div className="grid gap-4 py-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">标段</label>
+                <Select value={form.section || "all"} onValueChange={(v) => setForm({ ...form, section: v === "all" ? "" : v })}>
+                  <SelectTrigger><SelectValue placeholder="不限" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">不限</SelectItem>
+                    <SelectItem value="技术标">技术标</SelectItem>
+                    <SelectItem value="商务标">商务标</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-              <div>
-                <label className="text-xs text-muted-foreground">标段</label>
-                <select
-                  className="h-9 rounded-md border border-input bg-background px-3 text-sm w-full"
-                  value={form.bidSection}
-                  onChange={(e) => setForm({ ...form, bidSection: e.target.value })}
-                >
-                  <option value="">不限</option>
-                  <option value="技术标">技术标</option>
-                  <option value="商务标">商务标</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-xs text-muted-foreground">类型</label>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">标题 <span className="text-destructive">*</span></label>
                 <Input
-                  className="mt-1 h-8 text-sm"
-                  value={form.itemType}
-                  onChange={(e) => setForm({ ...form, itemType: e.target.value })}
-                  placeholder="如：资质要求"
+                  value={form.title}
+                  onChange={(e) => setForm({ ...form, title: e.target.value })}
+                  placeholder="如：完整性"
                 />
               </div>
             </div>
-            <div>
-              <label className="text-xs text-muted-foreground">条款编号</label>
-              <Input
-                className="mt-1 h-8 text-sm"
-                value={form.itemNo}
-                onChange={(e) => setForm({ ...form, itemNo: e.target.value })}
-                placeholder="如：第三章第5条"
-              />
-            </div>
-            <div>
-              <label className="text-xs text-muted-foreground">标题 *</label>
-              <Input
-                className="mt-1 h-8 text-sm"
-                value={form.title}
-                onChange={(e) => setForm({ ...form, title: e.target.value })}
-                placeholder="审查项标题"
-              />
-            </div>
-            <div>
-              <label className="text-xs text-muted-foreground">描述</label>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">检查点 <span className="text-destructive">*</span></label>
               <Textarea
-                className="mt-1 text-sm"
                 rows={3}
-                value={form.description}
-                onChange={(e) => setForm({ ...form, description: e.target.value })}
-                placeholder="详细描述..."
+                value={form.checkpoint}
+                onChange={(e) => setForm({ ...form, checkpoint: e.target.value })}
+                placeholder="具体的审查判定标准..."
               />
             </div>
-            {form.itemCategory === "review" && (
-              <>
-                <div>
-                  <label className="text-xs text-muted-foreground">不满足后果</label>
-                  <Input
-                    className="mt-1 h-8 text-sm"
-                    value={form.consequence}
-                    onChange={(e) => setForm({ ...form, consequence: e.target.value })}
-                    placeholder="如：废标"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground">法律依据</label>
-                  <Input
-                    className="mt-1 h-8 text-sm"
-                    value={form.legalReference}
-                    onChange={(e) => setForm({ ...form, legalReference: e.target.value })}
-                    placeholder="法律法规条款..."
-                  />
-                </div>
-              </>
-            )}
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-xs text-muted-foreground">页码</label>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">权重</label>
+              <Input
+                type="number"
+                min={0}
+                max={1}
+                step={0.1}
+                value={form.consequence}
+                onChange={(e) => setForm({ ...form, consequence: Number(e.target.value) })}
+                placeholder="0 ~ 1"
+              />
+            </div>
+            <div className="border-t pt-1" />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">页码</label>
                 <Input
-                  className="mt-1 h-8 text-sm"
                   type="number"
                   min={0}
                   value={form.pageNumber}
                   onChange={(e) => setForm({ ...form, pageNumber: Number(e.target.value) })}
                 />
               </div>
-              <div>
-                <label className="text-xs text-muted-foreground">区块索引</label>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">区块索引</label>
                 <Input
-                  className="mt-1 h-8 text-sm"
                   type="number"
                   min={0}
                   value={form.blockIndex}
@@ -324,10 +272,10 @@ export function ExtractionItemManager({ documentId, projectId, items, onRefresh 
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => { setOpen(false); resetForm(); }}>
+            <Button variant="outline" onClick={() => { setOpen(false); resetForm(); }}>
               取消
             </Button>
-            <Button size="sm" onClick={handleSave} disabled={saving}>
+            <Button onClick={handleSave} disabled={saving}>
               {saving ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
               {editing ? "保存" : "添加"}
             </Button>

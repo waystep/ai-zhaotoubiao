@@ -103,12 +103,6 @@ export const extractionStatusEnum = pgEnum("extraction_status", [
   "failed",        // 提取失败
 ]);
 
-// 提取项类别（统一审查项和应答项）
-export const extractionItemCategoryEnum = pgEnum("extraction_item_category", [
-  "review",        // 审查项（强制性/合规性要求）
-  "response",      // 应答项（要求投标人明确说明/提交的内容）
-]);
-
 // 投标状态
 export const bidStatusEnum = pgEnum("bid_status", [
   "draft",         // 草稿
@@ -564,7 +558,7 @@ export const responseItems = pgTable("response_items", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// 统一提取项表 - 合并审查项和应答项（替代 review_items 和 response_items）
+// 统一提取项表（审查项 / 检查点）
 export const extractionItems = pgTable("extraction_items", {
   id: uuid("id").primaryKey().defaultRandom(),
   projectId: uuid("project_id")
@@ -576,17 +570,17 @@ export const extractionItems = pgTable("extraction_items", {
   sourceBlockId: uuid("source_block_id")
     .references(() => documentBlocks.id, { onDelete: "set null" }),
 
-  // 类别：审查项(review) 或 应答项(response)
-  itemCategory: extractionItemCategoryEnum("item_category").notNull(),
+  // 标段：技术标 / 商务标
+  section: varchar("section", { length: 20 }),
 
-  // 标段区分：技术标 / 商务标
-  bidSection: varchar("bid_section", { length: 20 }),
+  // 审查项标题（类型名，如：完整性、关键信息一致性、质量目标等）
+  title: varchar("title", { length: 200 }).notNull(),
 
-  // 基本信息
-  itemType: varchar("item_type", { length: 100 }).notNull(),
-  itemNo: varchar("item_no", { length: 100 }),
-  title: varchar("title", { length: 500 }).notNull(),
-  description: text("description").notNull(),
+  // 检查点：具体的审查判定标准
+  checkpoint: text("checkpoint").notNull(),
+
+  // 后果/置信度权重（0-1）
+  consequence: decimal("consequence", { precision: 5, scale: 2 }),
 
   // 原文定位
   location: jsonb("location").notNull().default({
@@ -597,25 +591,8 @@ export const extractionItems = pgTable("extraction_items", {
     highlightText: "",
   }),
 
-  // 审查项专用字段（itemCategory="review"时使用）
-  requirements: jsonb("requirements").default({}),
-  consequence: varchar("consequence", { length: 100 }),
-  legalReference: text("legal_reference"),
-
-  // 应答项专用字段（itemCategory="response"时使用）
-  responseRequirements: jsonb("response_requirements").default({}),
-  scoringInfo: jsonb("scoring_info").default({}),
-
   // 提取元数据
-  extractionStatus: extractionStatusEnum("extraction_status").default("completed"),
   extractedBy: varchar("extracted_by", { length: 100 }),
-  extractionConfidence: decimal("extraction_confidence", { precision: 5, scale: 2 }),
-  extractionMetadata: jsonb("extraction_metadata").default({}),
-
-  // 验证状态
-  isVerified: boolean("is_verified").default(false),
-  verifiedBy: uuid("verified_by").references(() => users.id),
-  verifiedAt: timestamp("verified_at"),
 
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -650,7 +627,9 @@ export const documentPageEmbeddings = pgTable("document_page_embeddings", {
     .notNull()
     .references(() => documentParsedResults.id, { onDelete: "cascade" }),
   pageNumber: integer("page_number").notNull(),
-  // 该页所有block合并后的文本
+  // 该页内的chunk序号（0-based），同一页每个chunk对应一组相邻block
+  chunkIndex: integer("chunk_index").notNull().default(0),
+  // chunk 文本（3-8个相邻block的内容）
   pageText: text("page_text").notNull(),
   // 关联的block ID列表，用于回溯定位
   blockIds: jsonb("block_ids").notNull().default([]),
@@ -876,10 +855,6 @@ export const extractionItemsRelations = relations(extractionItems, ({ one }) => 
   sourceBlock: one(documentBlocks, {
     fields: [extractionItems.sourceBlockId],
     references: [documentBlocks.id],
-  }),
-  verifier: one(users, {
-    fields: [extractionItems.verifiedBy],
-    references: [users.id],
   }),
 }));
 

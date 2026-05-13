@@ -7,8 +7,7 @@ import {
   responseItemResults,
   reviewIssues,
   reviewItemResults,
-  reviewItems,
-  responseItems,
+  extractionItems,
   reviewReports,
 } from "@/lib/db/schema";
 
@@ -83,8 +82,8 @@ async function resolveReviewItemIds(projectId: string, inputIds: string[]): Prom
   const mapping = new Map<string, string>();
 
   // 获取项目所有审查项
-  const items = await db.query.reviewItems.findMany({
-    where: eq(reviewItems.projectId, projectId),
+  const items = await db.query.extractionItems.findMany({
+    where: eq(extractionItems.projectId, projectId),
     columns: { id: true },
   });
 
@@ -113,9 +112,9 @@ async function resolveReviewItemIds(projectId: string, inputIds: string[]): Prom
 async function resolveResponseItemIds(projectId: string, inputIds: string[]): Promise<Map<string, string>> {
   const mapping = new Map<string, string>();
 
-  // 获取项目所有响应项
-  const items = await db.query.responseItems.findMany({
-    where: eq(responseItems.projectId, projectId),
+  // 获取项目所有审查项（不再区分 review/response）
+  const items = await db.query.extractionItems.findMany({
+    where: eq(extractionItems.projectId, projectId),
     columns: { id: true },
   });
 

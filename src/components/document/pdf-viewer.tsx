@@ -434,10 +434,18 @@ export function PdfViewer({
       scrollToIssue({ ...focusedIssue, pageNumber: target });
     });
 
+    // 800ms 后消费 focusedIssue，后续不再重复滚动
+    const consumeTimer = window.setTimeout(() => onFocusedIssueConsumed?.(), 800);
+
     return () => {
       cancelAnimationFrame(raf);
+      window.clearTimeout(consumeTimer);
     };
-  }, [focusedIssue, pdfReady, numPages, scrollToIssue, scrollToPage]);
+    // ⚠️ 故意不加 scrollToIssue / scrollToPage 到 deps：
+    // 它们依赖 blocksByPage/overlaySize 等会随父组件重渲染变化的引用，
+    // 加入 deps 会导致每次重渲染都重新滚动到目标页，造成无法滚离的 bug。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusedIssue, pdfReady, numPages]);
 
   function isFocused(issue: IssueLocation): boolean {
     if (!focusedIssue) return false;

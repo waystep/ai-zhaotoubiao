@@ -17,7 +17,13 @@
       "mcp__Claude_Preview__preview_start",
       "mcp__Claude_in_Chrome__tabs_context_mcp",
       "Bash(cat logs/*.log)",
-      "Bash(ls -la logs/)"
+      "Bash(ls -la logs/)",
+      "Bash(node -e \"try { require\\('drizzle-orm/pg-core'\\); console.log\\('pg-core OK'\\); } catch\\(e\\) { console.log\\(e.message\\); }\")",
+      "Bash(grep -c \"pgvector\\\\|vector\" node_modules/drizzle-orm/package.json)",
+      "Bash(node -e ' *)",
+      "Bash(mkdir -p \"D:\\\\Projects\\\\Looma\\\\src\\\\app\\\\api\\\\documents\\\\[documentId]\\\\embeddings\")",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }

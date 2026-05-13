@@ -1,4 +1,4 @@
-// 统一提取项存储工具 - 替代 reviewItemStorageTool 和 responseItemStorageTool
+// 统一提取项存储工具
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
 import { db } from "@/lib/db/client";
@@ -19,28 +19,24 @@ async function validateBlockId(blockId: string | undefined | null): Promise<stri
 export const extractionItemStorageTool = createTool({
   id: "extraction-item-storage",
   description:
-    "将提取的审查项或应答项存储到统一的 extraction_items 表。sourceBlockId 必须使用 documentReaderTool 返回的真实 block.id (UUID)。bidSection 用于区分技术标/商务标。",
+    "将提取的审查项存储到统一的 extraction_items 表。sourceBlockId 必须使用 semantic-search 返回的真实 block.id (UUID)。section 用于区分技术标/商务标。",
   inputSchema: z.object({
     projectId: z.string().uuid().describe("项目ID"),
     documentId: z.string().uuid().describe("文档ID"),
     items: z
       .array(
         z.object({
-          itemCategory: z
-            .enum(["review", "response"])
-            .describe("类别：review=审查项, response=应答项"),
-          bidSection: z
+          section: z
             .enum(["技术标", "商务标"])
             .optional()
-            .describe("标段区分：技术标或商务标，无法判断时留空"),
+            .describe("标段：技术标或商务标"),
           sourceBlockId: z
             .string()
             .optional()
-            .describe("来源区块的真实 UUID（从 documentReaderTool 返回的 block.id），无法确定时传 null 或跳过"),
-          itemType: z.string().describe("类型（如：工期要求、资质要求、完整性要求、编制标准等）"),
-          itemNo: z.string().optional().describe("条款编号"),
-          title: z.string().describe("标题"),
-          description: z.string().describe("详细描述"),
+            .describe("来源区块的真实 UUID（从 semantic-search 返回的 blockIds[0]）"),
+          title: z.string().describe("审查项类型（如：完整性、关键信息一致性、质量目标等）"),
+          checkpoint: z.string().describe("具体的审查判定标准/检查点"),
+          consequence: z.number().min(0).max(1).optional().describe("后果权重/置信度（0-1）"),
           location: z
             .object({
               pageNumber: z.number().int().positive(),
@@ -51,29 +47,6 @@ export const extractionItemStorageTool = createTool({
             })
             .optional()
             .describe("位置信息（页码从1开始）"),
-          requirements: z
-            .object({
-              mandatory: z.boolean().optional(),
-              threshold: z.any().optional(),
-              criteria: z.array(z.string()).optional(),
-              proofRequired: z.array(z.string()).optional(),
-            })
-            .optional(),
-          consequence: z.string().optional().describe("不满足后果"),
-          legalReference: z.string().optional().describe("法律依据"),
-          responseRequirements: z
-            .object({
-              requiredFormat: z.string().optional(),
-              requiredContent: z.array(z.string()).optional(),
-              minLength: z.number().optional(),
-              attachments: z.array(z.string()).optional(),
-            })
-            .optional(),
-          scoringInfo: z
-            .object({ weight: z.number().optional(), scoringCriteria: z.string().optional() })
-            .optional(),
-          extractionConfidence: z.number().optional().describe("置信度 0-1"),
-          extractionMetadata: z.any().optional(),
         })
       )
       .describe("提取项列表"),
@@ -101,10 +74,9 @@ export const extractionItemStorageTool = createTool({
       let rejectedCount = 0;
 
       for (const item of items) {
-        // 验证 sourceBlockId：必须是真实存在的 block UUID
         const validBlockId = await validateBlockId(item.sourceBlockId);
         if (item.sourceBlockId && !validBlockId) {
-          console.warn(`[ExtractionStorage] 无效 sourceBlockId: ${item.sourceBlockId}，已置为 null`);
+          console.warn(`[ExtractionStorage] 无效 sourceBlockId: ${item.sourceBlockId}`);
           rejectedCount++;
         }
         if (validBlockId) validatedCount++;
@@ -114,13 +86,11 @@ export const extractionItemStorageTool = createTool({
           .values({
             projectId,
             documentId,
-            itemCategory: item.itemCategory || "review",
-            bidSection: item.bidSection || null,
+            section: item.section || null,
             sourceBlockId: validBlockId,
-            itemType: item.itemType,
-            itemNo: item.itemNo || null,
             title: item.title,
-            description: item.description,
+            checkpoint: item.checkpoint,
+            consequence: item.consequence != null ? String(item.consequence) : null,
             location: (item.location || {
               pageNumber: 0,
               blockIndex: 0,
@@ -128,16 +98,7 @@ export const extractionItemStorageTool = createTool({
               textSnippet: "",
               highlightText: "",
             }) as any,
-            requirements: item.requirements || {},
-            consequence: item.consequence || null,
-            legalReference: item.legalReference || null,
-            responseRequirements: item.responseRequirements || {},
-            scoringInfo: item.scoringInfo || {},
-            extractionConfidence: item.extractionConfidence != null
-              ? String(item.extractionConfidence)
-              : null,
             extractedBy: extractedBy || "extraction-agent",
-            extractionMetadata: item.extractionMetadata || {},
           })
           .returning();
         storedIds.push(record.id);
@@ -155,14 +116,14 @@ export const extractionItemStorageTool = createTool({
         .where(eq(documents.id, documentId));
 
       console.log(
-        `[ExtractionStorage] 存储 ${storedIds.length} 项，${validatedCount} 个有效 blockId，${rejectedCount} 个被拒绝`
+        `[ExtractionStorage] 存储 ${storedIds.length} 项，${validatedCount} 个有效 blockId`
       );
 
       return {
         storedItemIds: storedIds,
         totalStored: storedIds.length,
         success: true,
-        message: `成功存储 ${storedIds.length} 个提取项（${validatedCount} 个关联到原始区块）`,
+        message: `成功存储 ${storedIds.length} 个提取项`,
       };
     } catch (error) {
       console.error("存储提取项失败:", error);

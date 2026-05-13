@@ -20,19 +20,11 @@ export async function PATCH(request: Request, context: RouteContext) {
   const body = await request.json();
 
   const updates: Record<string, any> = { updatedAt: new Date() };
-  if (body.itemCategory !== undefined) updates.itemCategory = body.itemCategory;
-  if (body.bidSection !== undefined) updates.bidSection = body.bidSection;
-  if (body.itemType !== undefined) updates.itemType = body.itemType;
-  if (body.itemNo !== undefined) updates.itemNo = body.itemNo;
+  if (body.section !== undefined) updates.section = body.section;
   if (body.title !== undefined) updates.title = body.title;
-  if (body.description !== undefined) updates.description = body.description;
+  if (body.checkpoint !== undefined) updates.checkpoint = body.checkpoint;
+  if (body.consequence !== undefined) updates.consequence = String(body.consequence);
   if (body.location !== undefined) updates.location = body.location;
-  if (body.consequence !== undefined) updates.consequence = body.consequence;
-  if (body.legalReference !== undefined) updates.legalReference = body.legalReference;
-  if (body.requirements !== undefined) updates.requirements = body.requirements;
-  if (body.responseRequirements !== undefined) updates.responseRequirements = body.responseRequirements;
-  if (body.scoringInfo !== undefined) updates.scoringInfo = body.scoringInfo;
-  if (body.extractionConfidence !== undefined) updates.extractionConfidence = String(body.extractionConfidence);
 
   const [updated] = await db
     .update(extractionItems)

@@ -14,7 +14,7 @@ export const webSearchTool = createTool({
 注意事项：
 - 搜索结果仅供参考，需要人工核实
 - 搜索词应包含"标准"、"规范"、"GB"等关键词
-- 优先搜索 .gov.cn 域名下的官方标准`,
+- 网络可能不通，搜索失败（totalResults=0）时请勿编造标准，改用 semantic-search 检索招标文件中的原始表述`,
 
   inputSchema: z.object({
     query: z.string().describe("搜索查询（如：'公路工程施工质量验收标准 GB'）"),
@@ -35,20 +35,18 @@ export const webSearchTool = createTool({
 
   execute: async ({ query, count }) => {
     try {
-      // 使用 DuckDuckGo Instant Answer API（免费无需密钥）
       const response = await fetch(
         `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`,
-        { signal: AbortSignal.timeout(10000) }
+        { signal: AbortSignal.timeout(8000) }
       );
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        return { results: [], query, totalResults: 0 };
       }
 
       const data = await response.json();
       const results: { title: string; snippet: string; url: string }[] = [];
 
-      // Abstract
       if (data.AbstractText) {
         results.push({
           title: data.Heading || query,
@@ -57,7 +55,6 @@ export const webSearchTool = createTool({
         });
       }
 
-      // Related topics
       for (const topic of data.RelatedTopics || []) {
         if (results.length >= (count ?? 5)) break;
         if (topic.Text && topic.FirstURL) {
@@ -69,28 +66,9 @@ export const webSearchTool = createTool({
         }
       }
 
-      if (results.length === 0) {
-        results.push({
-          title: query,
-          snippet: `请在 https://www.google.com/search?q=${encodeURIComponent(query)} 手动搜索`,
-          url: `https://www.google.com/search?q=${encodeURIComponent(query)}`,
-        });
-      }
-
       return { results, query, totalResults: results.length };
-    } catch (error) {
-      console.error("[WebSearch] 搜索失败:", error);
-      return {
-        results: [
-          {
-            title: "搜索失败",
-            snippet: `联网搜索暂时不可用，请手动查询相关标准。错误: ${error instanceof Error ? error.message : "未知"}`,
-            url: "",
-          },
-        ],
-        query,
-        totalResults: 0,
-      };
+    } catch {
+      return { results: [], query, totalResults: 0 };
     }
   },
 });

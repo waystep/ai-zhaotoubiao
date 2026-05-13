@@ -101,14 +101,14 @@ export default function DashboardLayout({
           icon: FileText,
         },
         {
-          name: "审查报告",
-          href: `/projects/${selectedProjectId}/reports`,
+          name: "审查项",
+          href: `/projects/${selectedProjectId}/extraction-items`,
           icon: ClipboardCheck,
         },
         {
-          name: "审查项管理",
-          href: `/projects/${selectedProjectId}/extraction-items`,
-          icon: FileText,
+          name: "审查报告",
+          href: `/projects/${selectedProjectId}/reports`,
+          icon: ClipboardCheck,
         },
       ]
     : [];
