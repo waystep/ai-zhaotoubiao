@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { Plus, Pencil, Trash2, Loader2, ArrowLeft, FileText, Search } from "lucide-react";
+import { useParams } from "next/navigation";
+import { Plus, Pencil, Trash2, Loader2, FileText, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -51,7 +51,6 @@ const defaultForm = {
 
 export default function ExtractionItemsPage() {
   const params = useParams();
-  const router = useRouter();
   const projectId = params.projectId as string;
   const { toast } = useToast();
 
@@ -239,15 +238,6 @@ export default function ExtractionItemsPage() {
   return (
     <div className="space-y-4">
       <div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="mb-2 -ml-2 text-muted-foreground hover:text-foreground"
-          onClick={() => router.push(`/projects/${projectId}/documents`)}
-        >
-          <ArrowLeft className="mr-1 h-4 w-4" />
-          返回
-        </Button>
         <h2 className="text-h2">审查项管理</h2>
         <p className="text-muted-foreground">管理项目中所有文档的审查项和检查点</p>
       </div>

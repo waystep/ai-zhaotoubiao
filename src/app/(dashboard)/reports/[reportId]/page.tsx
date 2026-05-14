@@ -512,7 +512,7 @@ export default function ReportDetailPage() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <Link
-            href="/reports"
+            href={`/projects/${report.project.id}/reports`}
             className="mb-2 inline-flex items-center text-sm text-muted-foreground hover:text-primary"
           >
             <ArrowLeft className="mr-1 h-4 w-4" />
