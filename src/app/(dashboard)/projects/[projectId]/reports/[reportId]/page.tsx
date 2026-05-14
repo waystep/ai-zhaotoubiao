@@ -61,6 +61,7 @@ interface DocumentBlock {
   blockIndex: number;
   blockType: string | null;
   content: string;
+  imagePath?: string | null;
   bbox: {
     x0: number;
     y0: number;
@@ -144,6 +145,10 @@ interface Report {
   reviewItemResults: ReviewItemResult[];
   responseItemResults: ResponseItemResult[];
   standardDocuments: StandardDocument[];
+  imageRisks?: Array<{
+    id: string; pageNumber: number; imagePath: string; status: string;
+    hasRisk: boolean | null; riskType: string | null; riskText: string | null; confidence: string | null;
+  }>;
   structuredSummary?: {
     responseCoverageSummary: {
       total: number;
@@ -603,16 +608,6 @@ export default function ReportDetailPage() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">AI 评分</CardTitle>
-            <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-stat">{report.aiScore ? `${report.aiScore} 分` : "--"}</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">问题数量</CardTitle>
             <AlertCircle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
@@ -725,6 +720,52 @@ export default function ReportDetailPage() {
         <>
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]">
             <div className="space-y-6">
+              {report.imageRisks && report.imageRisks.filter((i) => i.hasRisk).length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <AlertCircle className="h-5 w-5 text-red-500" />
+                      暗标风险（图片审查）
+                    </CardTitle>
+                    <CardDescription>
+                      共 {report.imageRisks.length} 张图片，其中 {report.imageRisks.filter((i) => i.hasRisk).length} 张存在风险
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="max-h-64 space-y-2 overflow-y-auto">
+                      {report.imageRisks.filter((i) => i.hasRisk).map((img) => {
+                        const resolvedBlock = bidBlocks.find(
+                          (b) => b.imagePath && (b.imagePath === img.imagePath || b.imagePath.endsWith(img.imagePath))
+                        );
+                        const loc = resolvedBlock
+                          ? buildLocationFromBlock(resolvedBlock)
+                          : { pageNumber: img.pageNumber, blockIndex: 0 };
+                        return (
+                        <button
+                          key={img.id}
+                          type="button"
+                          onClick={() => selectLocation(loc)}
+                          className="w-full text-left flex items-start gap-3 rounded-md border border-red-100 bg-red-50 p-3 text-sm hover:border-red-300 hover:bg-red-100 transition-colors"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="text-xs">第{img.pageNumber}页</Badge>
+                              <Badge variant="destructive" className="text-xs">{img.riskType}</Badge>
+                            </div>
+                            {img.riskText && <p className="mt-1 text-xs font-medium">{img.riskText}</p>}
+                            {img.confidence && (
+                              <p className="mt-0.5 text-xs text-muted-foreground">
+                                置信度: {Number(img.confidence) <= 1 ? `${Math.round(Number(img.confidence) * 100)}%` : `${Math.round(Number(img.confidence))}%`}
+                              </p>
+                            )}
+                          </div>
+                        </button>
+                        );
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
               <Card>
                 <CardHeader>
                   <CardTitle>结构化审查结果</CardTitle>

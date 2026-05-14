@@ -9,9 +9,6 @@ interface RouteContext {
   params: Promise<{ documentId: string; itemId: string }>;
 }
 
-/**
- * PATCH: 更新提取项
- */
 export async function PATCH(request: Request, context: RouteContext) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -24,7 +21,7 @@ export async function PATCH(request: Request, context: RouteContext) {
   if (body.title !== undefined) updates.title = body.title;
   if (body.checkpoint !== undefined) updates.checkpoint = body.checkpoint;
   if (body.consequence !== undefined) updates.consequence = String(body.consequence);
-  if (body.location !== undefined) updates.location = body.location;
+  if (body.blocks !== undefined) updates.blocks = body.blocks;
 
   const [updated] = await db
     .update(extractionItems)
@@ -32,32 +29,22 @@ export async function PATCH(request: Request, context: RouteContext) {
     .where(eq(extractionItems.id, itemId))
     .returning();
 
-  if (!updated) {
-    return NextResponse.json({ error: "提取项不存在" }, { status: 404 });
-  }
-
+  if (!updated) return NextResponse.json({ error: "提取项不存在" }, { status: 404 });
   return NextResponse.json({ item: updated });
 }
 
-/**
- * DELETE: 删除提取项
- */
 export async function DELETE(request: Request, context: RouteContext) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { documentId, itemId } = await context.params;
-
   const [deleted] = await db
     .delete(extractionItems)
     .where(eq(extractionItems.id, itemId))
     .returning({ id: extractionItems.id });
 
-  if (!deleted) {
-    return NextResponse.json({ error: "提取项不存在" }, { status: 404 });
-  }
+  if (!deleted) return NextResponse.json({ error: "提取项不存在" }, { status: 404 });
 
-  // 更新计数
   await db
     .update(documents)
     .set({ extractionItemsCount: sql`GREATEST(${documents.extractionItemsCount} - 1, 0)`, updatedAt: new Date() })

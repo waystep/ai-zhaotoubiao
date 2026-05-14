@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth/config";
 import { db } from "@/lib/db/client";
-import { documents, reviewReports } from "@/lib/db/schema";
+import { documents, imageRiskAnalysis, reviewReports } from "@/lib/db/schema";
 import { and, eq, inArray } from "drizzle-orm";
 
 interface RouteContext {
@@ -112,12 +112,11 @@ export async function GET(request: Request, context: RouteContext) {
             reviewItem: {
               columns: {
                 id: true,
-                itemType: true,
-                itemNo: true,
+                section: true,
                 title: true,
-                description: true,
+                checkpoint: true,
                 consequence: true,
-                location: true,
+                blocks: true,
               },
             },
           },
@@ -135,6 +134,11 @@ export async function GET(request: Request, context: RouteContext) {
       fail: report.reviewItemResults.filter((item) => item.status === "fail").length,
       needsManualReview: report.reviewItemResults.filter((item) => item.status === "needs_manual_review").length,
     };
+
+    const imageRisks = await db.query.imageRiskAnalysis.findMany({
+      where: eq(imageRiskAnalysis.documentId, report.documentId),
+      orderBy: (fields, { asc }) => [asc(fields.pageNumber)],
+    });
 
     const standardDocuments = await db.query.documents.findMany({
       where: and(
@@ -154,6 +158,7 @@ export async function GET(request: Request, context: RouteContext) {
     return NextResponse.json({
       report: {
         ...report,
+        imageRisks,
         standardDocuments,
         structuredSummary: {
           reviewItemsSummary,

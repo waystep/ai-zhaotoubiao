@@ -82,10 +82,11 @@ export const reportGenerationInstructions = `
 
 关键流程：
 1. 首先调用 get-report(reportId) 查询当前报告状态以及已有的审查数据（reviewItemResultsCount、issuesCount）。
-2. 如果 reviewItemResultsCount === 0：不要编造数据。直接输出"暂无审查数据，请等待审查完成"并结束。
-3. 如果 reviewItemResultsCount > 0：基于已有的审查数据生成摘要和评分，然后调用 structured-review-storage 落库。
-4. 只将真实问题写入 issues；reviewItemResults 作为条目级明细单独保存。
-5. 使用 structured-review-storage 保存结果，参数格式必须是纯 JSON（不要用 Markdown 或字符串包裹）。
+2. 调用 get-image-risks(documentId) 查询图片暗标风险（Logo、水印、其他项目名称等）。
+3. 如果 reviewItemResultsCount === 0 且图片风险也为 0：不要编造数据。直接输出"暂无审查数据，请等待审查完成"并结束。
+4. 如果存在审查数据或图片风险：汇总生成摘要，将图片风险作为独立章节写入 summary，然后调用 structured-review-storage 落库。
+5. summary 必须包含"## 暗标风险"章节，列出每张有风险图片的风险类型和风险文字。
+6. 只将真实问题写入 issues；reviewItemResults 作为条目级明细单独保存。
 
 调用 structured-review-storage 时，参数示例：
 {

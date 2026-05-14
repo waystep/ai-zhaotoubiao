@@ -1,6 +1,7 @@
 // 报告生成智能体 - 汇总审查结果并生成最终报告
 import { Agent } from "@mastra/core/agent";
 import { Memory } from "@mastra/memory";
+import { getImageRisksTool } from "../tools/get-image-risks-tool";
 import { getReportTool } from "../tools/get-report-tool";
 import { issueStorageTool } from "../tools/issue-storage-tool";
 import { structuredReviewStorageTool } from "../tools/structured-review-storage-tool";
@@ -24,8 +25,9 @@ export const reportGenerationAgent = new Agent({
 
 报告结构：
 - 审查概要：项目信息、审查范围、检查点清单
+- 暗标风险：图片中发现的Logo、水印、其他项目名称等
 - 问题清单：按严重程度分类（critical/major/minor/suggestion）
-- 评分结论：综合评分（0-100）、建议结论（pass/revise/fail）
+- 评分结论：建议结论（pass/revise/fail）
 - 整改建议：针对性整改建议
 
 使用时机：审查流程最后一步，汇总所有结果生成最终报告。
@@ -47,6 +49,7 @@ export const reportGenerationAgent = new Agent({
   }),
   tools: {
     getReportTool,
+    getImageRisksTool,
     issueStorageTool,
     structuredReviewStorageTool,
   },

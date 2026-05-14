@@ -33,7 +33,7 @@ type ExtItem = {
   title?: string | null;
   checkpoint?: string | null;
   consequence?: string | null;
-  location?: { pageNumber?: number; blockIndex?: number } | null;
+  blocks?: Array<{ blockId: string; pageNumber: number; blockIndex: number }> | null;
   extractedBy?: string | null;
 };
 
@@ -44,8 +44,6 @@ const defaultForm = {
   title: "",
   checkpoint: "",
   consequence: 0,
-  pageNumber: 0,
-  blockIndex: 0,
   documentId: "",
 };
 
@@ -149,8 +147,6 @@ export default function ExtractionItemsPage() {
       title: item.title || "",
       checkpoint: item.checkpoint || "",
       consequence: item.consequence ? Number(item.consequence) : 0,
-      pageNumber: item.location?.pageNumber || 0,
-      blockIndex: item.location?.blockIndex || 0,
       documentId: item.documentId,
     });
     setOpen(true);
@@ -168,7 +164,7 @@ export default function ExtractionItemsPage() {
         title: form.title,
         checkpoint: form.checkpoint,
         consequence: form.consequence || null,
-        location: { pageNumber: form.pageNumber, blockIndex: form.blockIndex },
+        blocks: editing ? undefined : [],
       };
 
       const method = editing ? "PATCH" : "POST";
@@ -419,20 +415,6 @@ export default function ExtractionItemsPage() {
                 placeholder="0 ~ 1，如 0.6" />
             </div>
 
-            {/* 位置信息 */}
-            <div className="border-t pt-1" />
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">页码</label>
-                <Input type="number" min={0} value={form.pageNumber}
-                  onChange={(e) => setForm({ ...form, pageNumber: Number(e.target.value) })} />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">区块索引</label>
-                <Input type="number" min={0} value={form.blockIndex}
-                  onChange={(e) => setForm({ ...form, blockIndex: Number(e.target.value) })} />
-              </div>
-            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setOpen(false); resetForm(); }}>取消</Button>

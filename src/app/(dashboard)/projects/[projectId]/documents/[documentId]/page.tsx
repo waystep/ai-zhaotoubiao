@@ -79,15 +79,9 @@ interface ExtractedItem {
   id: string;
   title: string;
   checkpoint: string;
-  section?: string | null; // "技术标" | "商务标"
+  section?: string | null;
   consequence?: string | number | null;
-  sourceBlockId?: string | null;
-  sourceBlock?: ParsedBlock | null;
-  location?: {
-    pageNumber?: number;
-    blockIndex?: number;
-    bbox?: { x0: number; y0: number; x1: number; y1: number } | null;
-  };
+  blocks?: Array<{ blockId: string; pageNumber: number; blockIndex: number }>;
 }
 
 interface ExtractionResult {
@@ -239,7 +233,7 @@ export default function DocumentDetailPage() {
   const [focusedBlock, setFocusedBlock] = useState<ParsedBlock | null>(null);
   const [itemFocus, setItemFocus] = useState<IssueLocation | null>(null);
   const [activePopover, setActivePopover] = useState<{ title: string; desc: string; consequence?: string; page: number; blockIdx: number } | null>(null);
-  const [embeddingStatus, setEmbeddingStatus] = useState<{ has: boolean; model?: string; loading: boolean }>({ has: false, loading: false });
+  const [extractionOutput, setExtractionOutput] = useState<string | null>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasFetchedRef = useRef(false);
 
@@ -312,8 +306,6 @@ export default function DocumentDetailPage() {
         if (data.document?.parseStatus === "processing") {
           setIsParsing(true);
         }
-        // 自动生成页面嵌入（如尚未生成）
-        void ensureEmbeddings();
       }
     } catch (error) {
       console.error("获取文档详情失败:", error);
@@ -328,41 +320,6 @@ export default function DocumentDetailPage() {
       pollIntervalRef.current = null;
     }
   }, []);
-
-  const checkEmbeddings = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/documents/${documentId}/embeddings`);
-      if (!res.ok) return;
-      const data = await res.json();
-      setEmbeddingStatus({ has: data.hasEmbeddings, model: data.model, loading: false });
-      return data;
-    } catch { return null; }
-  }, [documentId]);
-
-  const ensureEmbeddings = useCallback(async () => {
-    const data = await checkEmbeddings();
-    if (!data || data.hasEmbeddings) return;
-    // 触发后台生成
-    setEmbeddingStatus((p) => ({ ...p, loading: true }));
-    try {
-      const res = await fetch(`/api/documents/${documentId}/embeddings`, { method: "POST" });
-      if (res.ok) await checkEmbeddings();
-    } catch {} finally {
-      setEmbeddingStatus((p) => ({ ...p, loading: false }));
-    }
-  }, [documentId, checkEmbeddings]);
-
-  const handleRegenEmbeddings = useCallback(async () => {
-    setEmbeddingStatus((p) => ({ ...p, loading: true }));
-    try {
-      const res = await fetch(`/api/documents/${documentId}/embeddings`, { method: "POST" });
-      if (res.ok) {
-        toast({ title: "Embedding 已重新生成" });
-        await checkEmbeddings();
-      }
-    } catch { toast({ title: "生成失败", variant: "destructive" }); }
-    finally { setEmbeddingStatus((p) => ({ ...p, loading: false })); }
-  }, [documentId, toast, checkEmbeddings]);
 
   const startPolling = useCallback(() => {
     stopPolling();
@@ -478,31 +435,64 @@ export default function DocumentDetailPage() {
 
   async function handleExtract() {
     setIsExtracting(true);
+    setExtractionOutput(null);
     try {
-      const response = await fetch(`/api/documents/${documentId}/extract`, {
-        method: "POST",
-      });
+      const response = await fetch(`/api/documents/${documentId}/extract`, { method: "POST" });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        toast({ title: "提取失败", description: error.error || "请求失败", variant: "destructive" });
+        setIsExtracting(false);
+        return;
+      }
 
-      if (response.ok) {
-        toast({
-          title: "提取完成",
-          description: "已完成审查项和应答项提取。",
-        });
-        await fetchExtractionResult();
-      } else {
-        const error = await response.json();
-        toast({
-          title: "提取失败",
-          description: error.error || error.details || "提取智能体执行失败",
-          variant: "destructive",
-        });
+      const reader = response.body?.getReader();
+      if (!reader) { setIsExtracting(false); return; }
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let toolLog = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const event = JSON.parse(line.slice(6));
+            switch (event.type) {
+              case "text":
+                toolLog += event.text;
+                setExtractionOutput(toolLog);
+                break;
+              case "tool-start":
+                toolLog += `\n🔧 调用 ${event.toolName}...\n`;
+                setExtractionOutput(toolLog);
+                break;
+              case "tool-end":
+                toolLog += event.error
+                  ? `   ❌ 失败: ${event.output}\n`
+                  : `   ✅ 完成\n`;
+                setExtractionOutput(toolLog);
+                break;
+              case "done":
+                toast({ title: `提取完成，${event.itemCount ?? 0} 条审查项` });
+                await fetchExtractionResult();
+                break;
+              case "error":
+                toolLog += `\n❌ ${event.message}\n`;
+                setExtractionOutput(toolLog);
+                toast({ title: "提取失败", description: event.message, variant: "destructive" });
+                break;
+            }
+          } catch {}
+        }
       }
     } catch {
-      toast({
-        title: "网络错误",
-        description: "请检查网络连接",
-        variant: "destructive",
-      });
+      toast({ title: "网络错误", variant: "destructive" });
     } finally {
       setIsExtracting(false);
     }
@@ -981,32 +971,7 @@ export default function DocumentDetailPage() {
                         <span className="text-xs text-muted-foreground">
                           已提取 {totalExtracted} 条，可重新发起以刷新结果
                         </span>
-                        <div className="flex items-center gap-1.5">
-                          {/* Embedding 状态 */}
-                          {embeddingStatus.has ? (
-                            <span className="text-xs text-muted-foreground" title={`模型: ${embeddingStatus.model || "unknown"}`}>
-                              RAG ✓
-                              <button
-                                type="button"
-                                className="ml-1 underline hover:text-foreground"
-                                onClick={handleRegenEmbeddings}
-                                disabled={embeddingStatus.loading}
-                              >
-                                {embeddingStatus.loading ? "..." : "重建"}
-                              </button>
-                            </span>
-                          ) : embeddingStatus.loading ? (
-                            <span className="text-xs text-muted-foreground">RAG <Loader2 className="inline h-3 w-3 animate-spin" /></span>
-                          ) : (
-                            <button
-                              type="button"
-                              className="text-xs text-amber-600 underline hover:text-amber-700"
-                              onClick={ensureEmbeddings}
-                            >
-                              生成RAG
-                            </button>
-                          )}
-                          <Button
+                        <Button
                             type="button"
                             size="sm"
                             variant="outline"
@@ -1020,37 +985,33 @@ export default function DocumentDetailPage() {
                           )}
                           重新提取
                         </Button>
-                        </div>
                       </div>
+                    )}
+                    {extractionOutput && (
+                      <details className="mb-3 rounded-md border bg-muted/30 text-xs">
+                        <summary className="cursor-pointer p-3 font-medium text-muted-foreground hover:text-foreground">
+                          智能体输出
+                        </summary>
+                        <pre className="max-h-80 overflow-auto whitespace-pre-wrap p-3 pt-0 text-muted-foreground leading-relaxed">
+                          {extractionOutput}
+                        </pre>
+                      </details>
                     )}
                     <div className="max-h-[calc(100vh-14rem)] space-y-3 overflow-y-auto pr-1">
                       {extractionResult.items.map((item) => {
-                        const pageNumber = item.location?.pageNumber ?? item.sourceBlock?.pageNumber;
-                        const blockIndex = item.location?.blockIndex ?? item.sourceBlock?.blockIndex;
                         const consequenceWeight = item.consequence != null ? Number(item.consequence) : 0;
-                        // 通过 sourceBlockId 从已加载的 blocks 中查找真实 block 信息
-                        const resolvedBlock =
-                          item.sourceBlockId && parsedResult?.blocks
-                            ? parsedResult.blocks.find(
-                                (b: ParsedBlock) => b.id === item.sourceBlockId
-                              )
-                            : null;
-                        const locPage =
-                          resolvedBlock?.pageNumber ??
-                          item.location?.pageNumber ??
-                          item.sourceBlock?.pageNumber ??
-                          0;
-                        const locIdx =
-                          resolvedBlock?.blockIndex ??
-                          item.location?.blockIndex ??
-                          item.sourceBlock?.blockIndex ??
-                          0;
-                        const locBbox =
-                          resolvedBlock?.bbox ??
-                          item.location?.bbox ??
-                          item.sourceBlock?.bbox;
-                        const canLocate = locPage > 0;
-                        const hasExactBlock = !!resolvedBlock;
+                        const refBlocks = item.blocks || [];
+                        // 通过 blockId 从已加载的 blocks 中查找真实的 bbox
+                        const resolvedBlocks = refBlocks.map((ref) => {
+                          const b = parsedResult?.blocks?.find((pb) => pb.id === ref.blockId);
+                          return {
+                            pageNumber: ref.pageNumber,
+                            blockIndex: ref.blockIndex,
+                            bbox: b?.bbox,
+                          };
+                        });
+                        const firstBlock = resolvedBlocks[0];
+                        const canLocate = refBlocks.length > 0 && firstBlock != null;
 
                         return (
                           <button
@@ -1061,29 +1022,23 @@ export default function DocumentDetailPage() {
                               canLocate ? "hover:border-primary/40 hover:bg-muted/40 cursor-pointer" : ""
                             }`}
                             onClick={() => {
-                              if (!canLocate) return;
-                              setCurrentPage(locPage);
+                              if (!canLocate || !firstBlock) return;
+                              setCurrentPage(firstBlock.pageNumber);
                               setItemFocus({
-                                pageNumber: locPage,
-                                blockIndex: locIdx,
-                                bbox: locBbox || undefined,
+                                pageNumber: firstBlock.pageNumber,
+                                blockIndex: firstBlock.blockIndex,
+                                bbox: firstBlock.bbox,
                                 textSnippet: item.title,
                               });
                               setActivePopover({
                                 title: item.title,
                                 desc: item.checkpoint,
                                 consequence: consequenceWeight > 0 ? `权重: ${consequenceWeight.toFixed(2)}` : undefined,
-                                page: locPage,
-                                blockIdx: locIdx,
+                                page: firstBlock.pageNumber,
+                                blockIdx: firstBlock.blockIndex,
                               });
                             }}
-                            title={
-                              hasExactBlock
-                                ? "点击定位到原文（已关联区块）"
-                                : canLocate
-                                ? "点击定位到对应页面"
-                                : "无定位信息"
-                            }
+                            title={canLocate ? `定位到第${firstBlock!.pageNumber}页（${refBlocks.length} 个关联区块）` : "无定位信息"}
                           >
                             <div className="mb-1 flex flex-wrap items-center gap-1.5">
                               <Badge variant="secondary" className="text-xs">{item.title}</Badge>
@@ -1092,15 +1047,10 @@ export default function DocumentDetailPage() {
                                   {item.section}
                                 </Badge>
                               )}
-                              {consequenceWeight > 0 && (
-                                <Badge variant="outline" className="text-xs text-red-500">
-                                  权重: {consequenceWeight.toFixed(2)}
-                                </Badge>
-                              )}
                             </div>
                             <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-                              {pageNumber ? <span>第{pageNumber}页</span> : null}
-                              {blockIndex != null ? <span>#{blockIndex}</span> : null}
+                              {refBlocks.length > 0 && <span>{refBlocks.length} 个关联区块</span>}
+                              {firstBlock ? <span>第{firstBlock.pageNumber}页</span> : null}
                             </div>
                             <p className="line-clamp-2 text-sm leading-6 text-muted-foreground">
                               {item.checkpoint}

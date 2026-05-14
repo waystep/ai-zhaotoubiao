@@ -1,137 +1,112 @@
-// 统一提取项存储工具
+// 统一提取项存储工具 — 支持新增和覆盖
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
 import { db } from "@/lib/db/client";
-import { extractionItems, documents, documentBlocks } from "@/lib/db/schema";
+import { extractionItems, documents } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-async function validateBlockId(blockId: string | undefined | null): Promise<string | null> {
-  if (!blockId || !UUID_RE.test(blockId)) return null;
-  const exists = await db.query.documentBlocks.findFirst({
-    where: eq(documentBlocks.id, blockId),
-    columns: { id: true },
-  });
-  return exists ? exists.id : null;
-}
 
 export const extractionItemStorageTool = createTool({
   id: "extraction-item-storage",
   description:
-    "将提取的审查项存储到统一的 extraction_items 表。sourceBlockId 必须使用 semantic-search 返回的真实 block.id (UUID)。section 用于区分技术标/商务标。",
+    "存储或覆盖审查项。传入 id 则更新已有项，不传 id 则新增。每个审查项可关联多个原文 block。",
   inputSchema: z.object({
-    projectId: z.string().uuid().describe("项目ID"),
-    documentId: z.string().uuid().describe("文档ID"),
-    items: z
-      .array(
-        z.object({
-          section: z
-            .enum(["技术标", "商务标"])
-            .optional()
-            .describe("标段：技术标或商务标"),
-          sourceBlockId: z
-            .string()
-            .optional()
-            .describe("来源区块的真实 UUID（从 semantic-search 返回的 blockIds[0]）"),
-          title: z.string().describe("审查项类型（如：完整性、关键信息一致性、质量目标等）"),
-          checkpoint: z.string().describe("具体的审查判定标准/检查点"),
-          consequence: z.number().min(0).max(1).optional().describe("后果权重/置信度（0-1）"),
-          location: z
-            .object({
-              pageNumber: z.number().int().positive(),
-              blockIndex: z.number().int().nonnegative(),
-              bbox: z.object({ x0: z.number(), y0: z.number(), x1: z.number(), y1: z.number() }).optional(),
-              textSnippet: z.string().optional(),
-              highlightText: z.string().optional(),
-            })
-            .optional()
-            .describe("位置信息（页码从1开始）"),
-        })
-      )
-      .describe("提取项列表"),
-    extractedBy: z.string().optional().describe("提取智能体来源"),
+    projectId: z.string().uuid(),
+    documentId: z.string().uuid(),
+    items: z.array(
+      z.object({
+        id: z.string().uuid().optional().describe("已有审查项ID（传入则覆盖，不传则新增）"),
+        section: z.enum(["技术标", "商务标"]).optional().describe("标段"),
+        title: z.string().describe("审查项类型"),
+        checkpoint: z.string().describe("审查判定标准"),
+        consequence: z.number().min(0).max(1).optional().describe("权重（0-1）"),
+        blocks: z.array(
+          z.object({
+            blockId: z.string(),
+            pageNumber: z.number().int().positive(),
+            blockIndex: z.number().int().nonnegative(),
+          })
+        ).describe("关联的原文区块"),
+      })
+    ),
+    extractedBy: z.string().optional(),
   }),
   outputSchema: z.object({
     storedItemIds: z.array(z.string().uuid()),
     totalStored: z.number(),
+    updatedIds: z.array(z.string().uuid()),
+    newIds: z.array(z.string().uuid()),
     success: z.boolean(),
-    message: z.string().optional(),
   }),
   execute: async ({ projectId, documentId, items: itemsInput, extractedBy }) => {
     try {
       let items = itemsInput;
-      if (typeof itemsInput === "string") {
-        items = JSON.parse(itemsInput);
-      }
-
+      if (typeof itemsInput === "string") items = JSON.parse(itemsInput);
       if (!Array.isArray(items) || items.length === 0) {
-        return { storedItemIds: [], totalStored: 0, success: true, message: "无提取项" };
+        return { storedItemIds: [], totalStored: 0, updatedIds: [], newIds: [], success: true };
       }
 
-      const storedIds: string[] = [];
-      let validatedCount = 0;
-      let rejectedCount = 0;
+      const newIds: string[] = [];
+      const updatedIds: string[] = [];
 
       for (const item of items) {
-        const validBlockId = await validateBlockId(item.sourceBlockId);
-        if (item.sourceBlockId && !validBlockId) {
-          console.warn(`[ExtractionStorage] 无效 sourceBlockId: ${item.sourceBlockId}`);
-          rejectedCount++;
-        }
-        if (validBlockId) validatedCount++;
+        const data = {
+          section: item.section || null,
+          title: item.title,
+          checkpoint: item.checkpoint,
+          consequence: item.consequence != null ? String(item.consequence) : null,
+          blocks: (item.blocks || []) as any,
+          extractedBy: extractedBy || "extraction-agent",
+          updatedAt: new Date(),
+        };
 
-        const [record] = await db
-          .insert(extractionItems)
-          .values({
-            projectId,
-            documentId,
-            section: item.section || null,
-            sourceBlockId: validBlockId,
-            title: item.title,
-            checkpoint: item.checkpoint,
-            consequence: item.consequence != null ? String(item.consequence) : null,
-            location: (item.location || {
-              pageNumber: 0,
-              blockIndex: 0,
-              bbox: { x0: 0, y0: 0, x1: 0, y1: 0 },
-              textSnippet: "",
-              highlightText: "",
-            }) as any,
-            extractedBy: extractedBy || "extraction-agent",
-          })
-          .returning();
-        storedIds.push(record.id);
+        // 优先用传入的 id；无 id 时按 documentId+title 查已有项做 upsert
+        let targetId = item.id as string | undefined;
+        if (!targetId) {
+          const existing = await db.query.extractionItems.findFirst({
+            where: (fields, ops) => ops.and(
+              ops.eq(fields.documentId, documentId),
+              ops.eq(fields.title, item.title),
+            ),
+            columns: { id: true },
+          });
+          targetId = existing?.id;
+        }
+
+        if (targetId) {
+          const [updated] = await db
+            .update(extractionItems)
+            .set(data)
+            .where(eq(extractionItems.id, targetId))
+            .returning();
+          if (updated) updatedIds.push(updated.id);
+        } else {
+          const [record] = await db
+            .insert(extractionItems)
+            .values({ ...data, projectId, documentId })
+            .returning();
+          newIds.push(record.id);
+        }
       }
 
-      // 更新文档提取计数
-      const currentDoc = await db.query.documents.findFirst({
-        where: eq(documents.id, documentId),
-        columns: { extractionItemsCount: true },
-      });
-      const currentCount = currentDoc?.extractionItemsCount ?? 0;
+      const allIds = [...updatedIds, ...newIds];
+      const currentCount = await db.$count(extractionItems, eq(extractionItems.documentId, documentId));
       await db
         .update(documents)
-        .set({ extractionItemsCount: currentCount + storedIds.length, updatedAt: new Date() })
+        .set({ extractionItemsCount: currentCount, updatedAt: new Date() })
         .where(eq(documents.id, documentId));
 
-      console.log(
-        `[ExtractionStorage] 存储 ${storedIds.length} 项，${validatedCount} 个有效 blockId`
-      );
-
       return {
-        storedItemIds: storedIds,
-        totalStored: storedIds.length,
+        storedItemIds: allIds,
+        totalStored: allIds.length,
+        updatedIds,
+        newIds,
         success: true,
-        message: `成功存储 ${storedIds.length} 个提取项`,
       };
     } catch (error) {
       console.error("存储提取项失败:", error);
       return {
-        storedItemIds: [],
-        totalStored: 0,
+        storedItemIds: [], totalStored: 0, updatedIds: [], newIds: [],
         success: false,
-        message: `存储失败: ${error instanceof Error ? error.message : "未知错误"}`,
       };
     }
   },

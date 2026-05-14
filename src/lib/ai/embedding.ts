@@ -1,14 +1,11 @@
 // 嵌入向量生成与小粒度 chunk 工具
-// 支持 BCE embedding + reranker 两阶段检索
 import { db } from "@/lib/db/client";
 import { documentPageEmbeddings, documentParsedResults } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 
 const API_BASE = process.env.EMBEDDING_API_URL || "http://192.168.2.81:1234/v1";
 const EMBEDDING_API = API_BASE + "/embeddings";
-const RERANK_API = API_BASE + "/rerank";
 const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL || "text-embedding-bce-embedding-base_v1";
-const RERANK_MODEL = process.env.RERANK_MODEL || "text-embedding-bce-reranker-base_v1";
 const API_KEY = process.env.EMBEDDING_API_KEY || "lm-studio";
 
 /** 每个 chunk 的最大字符数 */
@@ -36,42 +33,6 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
   return data.data
     .sort((a: any, b: any) => a.index - b.index)
     .map((item: any) => item.embedding);
-}
-
-/**
- * 调用 reranker API 对候选文档重新打分
- */
-export async function rerank(
-  query: string,
-  documents: string[],
-  topN?: number
-): Promise<{ index: number; score: number }[]> {
-  if (documents.length === 0) return [];
-
-  const response = await fetch(RERANK_API, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: RERANK_MODEL,
-      query,
-      documents,
-      ...(topN ? { top_n: topN } : {}),
-    }),
-  });
-
-  if (!response.ok) {
-    const errText = await response.text();
-    console.warn(`[Rerank] API error: ${response.status} ${errText}`);
-    return [];
-  }
-
-  const data = await response.json();
-  return (data.results || [])
-    .map((r: any) => ({ index: r.index, score: r.relevance_score ?? r.score ?? 0 }))
-    .sort((a: any, b: any) => b.score - a.score);
 }
 
 /**

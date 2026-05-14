@@ -22,7 +22,7 @@ export const getReviewItemsTool = createTool({
         checkpoint: z.string().describe("审查判定标准"),
         section: z.string().optional().describe("标段"),
         consequence: z.number().optional().describe("后果权重"),
-        location: z.any().describe("原文定位"),
+        blocks: z.any().describe("关联的原文区块列表"),
         documentName: z.string().optional().describe("来源文档名称"),
       })
     ),
@@ -56,7 +56,7 @@ export const getReviewItemsTool = createTool({
           checkpoint: item.checkpoint || "",
           section: item.section || undefined,
           consequence: item.consequence ? Number(item.consequence) : undefined,
-          location: item.location || {},
+          blocks: item.blocks || [],
           documentName: item.document?.name || undefined,
         })),
         total: items.length,

@@ -417,7 +417,7 @@ export const reviewItemResults = pgTable("review_item_results", {
     .references(() => reviewReports.id, { onDelete: "cascade" }),
   reviewItemId: uuid("review_item_id")
     .notNull()
-    .references(() => reviewItems.id, { onDelete: "cascade" }),
+    .references(() => extractionItems.id, { onDelete: "cascade" }),
   status: reviewItemResultStatusEnum("status").notNull(),
   reason: text("reason").notNull(),
   evidenceBlockIds: jsonb("evidence_block_ids").default([]),
@@ -565,9 +565,6 @@ export const extractionItems = pgTable("extraction_items", {
   documentId: uuid("document_id")
     .notNull()
     .references(() => documents.id, { onDelete: "cascade" }),
-  sourceBlockId: uuid("source_block_id")
-    .references(() => documentBlocks.id, { onDelete: "set null" }),
-
   // 标段：技术标 / 商务标
   section: varchar("section", { length: 20 }),
 
@@ -580,14 +577,8 @@ export const extractionItems = pgTable("extraction_items", {
   // 后果/置信度权重（0-1）
   consequence: decimal("consequence", { precision: 5, scale: 2 }),
 
-  // 原文定位
-  location: jsonb("location").notNull().default({
-    pageNumber: 0,
-    blockIndex: 0,
-    bbox: { x0: 0, y0: 0, x1: 0, y1: 0 },
-    textSnippet: "",
-    highlightText: "",
-  }),
+  // 关联的原文区块列表
+  blocks: jsonb("blocks").notNull().default([]),
 
   // 提取元数据
   extractedBy: varchar("extracted_by", { length: 100 }),
@@ -850,10 +841,6 @@ export const extractionItemsRelations = relations(extractionItems, ({ one }) => 
     fields: [extractionItems.projectId],
     references: [tenderProjects.id],
   }),
-  sourceBlock: one(documentBlocks, {
-    fields: [extractionItems.sourceBlockId],
-    references: [documentBlocks.id],
-  }),
 }));
 
 export const reviewItemResultsRelations = relations(reviewItemResults, ({ one }) => ({
@@ -861,10 +848,9 @@ export const reviewItemResultsRelations = relations(reviewItemResults, ({ one })
     fields: [reviewItemResults.reportId],
     references: [reviewReports.id],
   }),
-  // review_item_results.review_item_id 外键指向 review_items（旧库无 extraction_items 表）
-  reviewItem: one(reviewItems, {
+  reviewItem: one(extractionItems, {
     fields: [reviewItemResults.reviewItemId],
-    references: [reviewItems.id],
+    references: [extractionItems.id],
   }),
 }));
 
