@@ -85,10 +85,9 @@ interface ReviewItemResult {
   metadata?: Record<string, unknown>;
   reviewItem: {
     id: string;
-    itemType: string;
-    itemNo?: string | null;
+    section?: string | null;
     title: string;
-    description: string;
+    checkpoint?: string | null;
     consequence?: string | null;
     location: IssueLocation;
   };
@@ -252,6 +251,7 @@ export default function ReportDetailPage() {
   const params = useParams();
   const router = useRouter();
   const { toast } = useToast();
+  const projectId = params.projectId as string;
   const reportId = params.reportId as string;
 
   const [report, setReport] = useState<Report | null>(null);
@@ -499,7 +499,7 @@ export default function ReportDetailPage() {
           <AlertCircle className="mb-4 h-12 w-12 text-muted-foreground" />
           <h3 className="mb-2 text-h5">报告不存在</h3>
           <p className="mb-4 text-center text-muted-foreground">请检查报告 ID 是否正确</p>
-          <Button variant="outline" onClick={() => router.push("/reports")}>
+          <Button variant="outline" onClick={() => router.push(`/projects/${projectId}/reports`)}>
             返回报告列表
           </Button>
         </CardContent>
@@ -527,7 +527,7 @@ export default function ReportDetailPage() {
           {(report.status === "pending" ||
             report.status === "in_progress" ||
             report.status === "failed") && (
-            <Button onClick={() => router.push(`/reports/${reportId}/chat`)}>
+            <Button onClick={() => router.push(`/projects/${projectId}/reports/${reportId}/chat`)}>
               <Bot className="mr-2 h-4 w-4" />
               {report.status === "pending" ? "进入审查会话" : "查看审查会话"}
             </Button>
@@ -662,22 +662,22 @@ export default function ReportDetailPage() {
             <CardContent className="space-y-2 text-sm">
               <div className="flex items-center justify-between">
                 <span>总数</span>
-                <span className="font-medium">{report.structuredSummary.responseCoverageSummary.total}</span>
+                <span className="font-medium">{report.structuredSummary?.responseCoverageSummary?.total ?? 0}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span>已响应</span>
-                <span className="font-medium">{report.structuredSummary.responseCoverageSummary.answered}</span>
+                <span className="font-medium">{report.structuredSummary?.responseCoverageSummary?.answered ?? 0}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span>部分响应</span>
                 <span className="font-medium">
-                  {report.structuredSummary.responseCoverageSummary.partiallyAnswered}
+                  {report.structuredSummary?.responseCoverageSummary?.partiallyAnswered ?? 0}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span>未响应</span>
                 <span className="font-medium text-red-600">
-                  {report.structuredSummary.responseCoverageSummary.unanswered}
+                  {report.structuredSummary?.responseCoverageSummary?.unanswered ?? 0}
                 </span>
               </div>
             </CardContent>
@@ -721,15 +721,16 @@ export default function ReportDetailPage() {
                                   <Badge className={reviewStatusClasses[result.status]}>
                                     {reviewStatusLabels[result.status]}
                                   </Badge>
-                                  {result.reviewItem.itemNo && (
-                                    <Badge variant="outline">{result.reviewItem.itemNo}</Badge>
+                                  {result.reviewItem.section && (
+                                    <Badge variant="outline" className="border-blue-300 text-blue-700">{result.reviewItem.section}</Badge>
                                   )}
-                                  <Badge variant="secondary">{result.reviewItem.itemType}</Badge>
+                                  <span className="text-sm font-medium">{result.reviewItem.title}</span>
                                 </div>
-                                <p className="mt-2 font-medium">{result.reviewItem.title}</p>
-                                <p className="mt-1 text-sm text-muted-foreground">
-                                  {result.reviewItem.description}
-                                </p>
+                                {result.reviewItem.checkpoint && (
+                                  <p className="mt-2 text-sm text-muted-foreground line-clamp-2">
+                                    {result.reviewItem.checkpoint}
+                                  </p>
+                                )}
                               </div>
                               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                 <MapPin className="h-3.5 w-3.5" />
@@ -740,9 +741,9 @@ export default function ReportDetailPage() {
                             <div className="mt-3 rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">
                               {result.reason}
                             </div>
-                            {result.reviewItem.consequence && (
+                            {result.reviewItem.consequence != null && Number(result.reviewItem.consequence) > 0 && (
                               <p className="mt-2 text-xs text-red-600">
-                                不满足后果: {result.reviewItem.consequence}
+                                后果权重: {Number(result.reviewItem.consequence).toFixed(2)}
                               </p>
                             )}
                           </button>
@@ -759,10 +760,10 @@ export default function ReportDetailPage() {
                       <ResultSectionHeader
                         title="响应项结果"
                         description="核验投标文件是否对要求内容作出完整响应"
-                        count={report.responseItemResults.length}
+                        count={report.responseItemResults?.length ?? 0}
                       />
                       <div className="space-y-3">
-                        {report.responseItemResults.map((result) => (
+                        {(report.responseItemResults ?? []).map((result: any) => (
                           <button
                             key={result.id}
                             type="button"
@@ -796,7 +797,7 @@ export default function ReportDetailPage() {
                             </div>
                           </button>
                         ))}
-                        {report.responseItemResults.length === 0 && (
+                        {(report.responseItemResults?.length ?? 0) === 0 && (
                           <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
                             暂无响应项结果
                           </div>
@@ -915,7 +916,7 @@ export default function ReportDetailPage() {
 
           {report.issues.length === 0 &&
             report.reviewItemResults.length === 0 &&
-            report.responseItemResults.length === 0 && (
+            (report.responseItemResults?.length ?? 0) === 0 && (
               <Card>
                 <CardContent className="flex flex-col items-center justify-center py-12">
                   <FileSearch className="mb-4 h-12 w-12 text-muted-foreground" />
@@ -961,7 +962,7 @@ export default function ReportDetailPage() {
             <p className="mb-4 text-center text-muted-foreground">
               这次审查没有完整落库，请进入审查会话查看过程并重新触发
             </p>
-            <Button onClick={() => router.push(`/reports/${reportId}/chat`)}>
+            <Button onClick={() => router.push(`/projects/${projectId}/reports/${reportId}/chat`)}>
               <Bot className="mr-2 h-4 w-4" />
               打开审查会话
             </Button>

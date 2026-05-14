@@ -469,7 +469,7 @@ export default function ProjectReportsPage() {
 
                     {/* 文档名称 */}
                     <Link
-                      href={`/reports/${report.id}`}
+                      href={`/projects/${projectId}/reports/${report.id}`}
                       onClick={() => saveNow()}
                       className="flex items-center gap-3 min-w-0 group"
                     >

@@ -24,7 +24,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { PdfViewer, type IssueLocation } from "@/components/document/pdf-viewer";
 import { useToast } from "@/hooks/use-toast";
 
@@ -104,8 +110,6 @@ interface ImageRiskItem {
   riskType: string | null;
   riskText: string | null;
   confidence: string | null;
-  reason: string | null;
-  suggestion: string | null;
   error: string | null;
 }
 
@@ -254,6 +258,9 @@ export default function DocumentDetailPage() {
       console.error("获取提取结果失败:", error);
     }
   }, [documentId]);
+
+  const [isReanalyzing, setIsReanalyzing] = useState(false);
+  const [imageFilter, setImageFilter] = useState("hasRisk");
 
   const fetchImageRiskResult = useCallback(async () => {
     try {
@@ -500,6 +507,38 @@ export default function DocumentDetailPage() {
     }
   }
 
+  async function handleRetryImage(imageId: string) {
+    try {
+      const res = await fetch(`/api/documents/${documentId}/images`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageId }),
+      });
+      if (res.ok) {
+        toast({ title: "已重置，等待分析" });
+        void fetchImageRiskResult();
+      } else {
+        toast({ title: "重试失败", variant: "destructive" });
+      }
+    } catch { toast({ title: "网络错误", variant: "destructive" }); }
+  }
+
+  async function handleReanalyzeImages() {
+    setIsReanalyzing(true);
+    try {
+      const res = await fetch(`/api/documents/${documentId}/images`, { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        toast({ title: `已重置 ${data.resetCount} 张图片，正在重新分析...` });
+        void fetchImageRiskResult();
+      } else {
+        toast({ title: "重置失败", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "网络错误", variant: "destructive" });
+    } finally { setIsReanalyzing(false); }
+  }
+
   const markdown = useMemo(() => {
     const text = parsedResult?.fullText?.trim();
     if (!text) return "";
@@ -722,8 +761,39 @@ export default function DocumentDetailPage() {
                         </p>
                       </div>
                     ) : (
-                      <div className="max-h-[calc(100vh-14rem)] space-y-2 overflow-y-auto pr-1">
-                        {imageRiskResult.images.map((image) => {
+                      <>
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <Select value={imageFilter} onValueChange={setImageFilter}>
+                            <SelectTrigger className="w-28 h-8 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">全部</SelectItem>
+                              <SelectItem value="hasRisk">有风险</SelectItem>
+                              <SelectItem value="noRisk">无风险</SelectItem>
+                              <SelectItem value="pending">待分析</SelectItem>
+                              <SelectItem value="failed">失败</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={handleReanalyzeImages}
+                            disabled={isReanalyzing}
+                          >
+                            {isReanalyzing ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                            重新分析
+                          </Button>
+                        </div>
+                        <div className="max-h-[calc(100vh-16rem)] space-y-2 overflow-y-auto pr-1">
+                        {imageRiskResult.images.filter((image) => {
+                          if (imageFilter === "all") return true;
+                          if (imageFilter === "hasRisk") return image.hasRisk === true;
+                          if (imageFilter === "noRisk") return image.status === "completed" && image.hasRisk === false;
+                          if (imageFilter === "pending") return image.status === "pending" || image.status === "processing";
+                          if (imageFilter === "failed") return image.status === "failed";
+                          return true;
+                        }).map((image) => {
                           // 通过 imagePath 匹配 blocks 获取精确 bbox
                           const imgBlock = parsedResult?.blocks?.find(
                             (b: any) => b.imagePath === image.imagePath
@@ -751,14 +821,41 @@ export default function DocumentDetailPage() {
                               <FileImage className="h-4 w-4 text-muted-foreground" />
                               <Badge variant="outline">第{image.pageNumber}页</Badge>
                               {image.status === "pending" ? (
-                                <Badge variant="secondary" className="text-xs">待分析</Badge>
+                                <>
+                                  <Badge variant="secondary" className="text-xs">待分析</Badge>
+                                  <button
+                                    type="button"
+                                    className="ml-auto text-xs text-blue-600 hover:text-blue-800 underline"
+                                    onClick={(e) => { e.stopPropagation(); handleRetryImage(image.id); }}
+                                  >
+                                    重试
+                                  </button>
+                                </>
                               ) : image.status === "processing" ? (
-                                <Badge variant="secondary" className="text-xs">
-                                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                                  分析中
-                                </Badge>
+                                <>
+                                  <Badge variant="secondary" className="text-xs">
+                                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                    分析中
+                                  </Badge>
+                                  <button
+                                    type="button"
+                                    className="ml-auto text-xs text-blue-600 hover:text-blue-800 underline"
+                                    onClick={(e) => { e.stopPropagation(); handleRetryImage(image.id); }}
+                                  >
+                                    重试
+                                  </button>
+                                </>
                               ) : image.status === "failed" ? (
-                                <Badge variant="destructive" className="text-xs">失败</Badge>
+                                <>
+                                  <Badge variant="destructive" className="text-xs">失败</Badge>
+                                  <button
+                                    type="button"
+                                    className="ml-auto text-xs text-blue-600 hover:text-blue-800 underline"
+                                    onClick={(e) => { e.stopPropagation(); handleRetryImage(image.id); }}
+                                  >
+                                    重试
+                                  </button>
+                                </>
                               ) : image.hasRisk ? (
                                 <Badge variant="destructive" className="text-xs gap-1">
                                   <AlertTriangle className="h-3 w-3" />
@@ -786,9 +883,6 @@ export default function DocumentDetailPage() {
                                     <span>{Number(image.confidence) <= 1 ? `${Math.round(Number(image.confidence) * 100)}%` : `${Math.round(Number(image.confidence))}%`}</span>
                                   </div>
                                 ) : null}
-                                {image.reason ? (
-                                  <p className="mt-1 text-muted-foreground">{image.reason}</p>
-                                ) : null}
                               </div>
                             ) : image.status === "failed" ? (
                               <p className="text-sm text-red-600">{image.error}</p>
@@ -799,7 +893,8 @@ export default function DocumentDetailPage() {
                           </button>
                           );
                         })}
-                      </div>
+                        </div>
+                      </>
                     )}
                   </TabsContent>
                 ) : null}

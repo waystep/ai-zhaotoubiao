@@ -45,6 +45,7 @@ interface Report {
 export default function ReportChatPage() {
   const params = useParams();
   const router = useRouter();
+  const projectId = params.projectId as string;
   const reportId = params.reportId as string;
 
   const [input, setInput] = useState("");
@@ -145,7 +146,7 @@ export default function ReportChatPage() {
     <div className="max-w-4xl mx-auto p-0 md:p-6 relative size-full min-h-[600px]">
       <Button
         variant="ghost"
-        onClick={() => router.push(`/reports/${reportId}`)}
+        onClick={() => router.push(`/projects/${projectId}/reports/${reportId}`)}
         className="mb-3"
       >
         <ArrowLeft className="mr-2 h-4 w-4" />

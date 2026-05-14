@@ -1,15 +1,12 @@
 // 文档提取智能体 - 从招标文件和法律文件中提取审查项和响应项（统一模型）
 // 使用语义搜索（RAG）替代全量文档读取，大幅提升速度
 import { Agent } from "@mastra/core/agent";
-import { Memory } from "@mastra/memory";
 import { extractionItemStorageTool } from "../tools/extraction-item-storage-tool";
 import { semanticSearchTool } from "../tools/semantic-search-tool";
 import { webSearchTool } from "../tools/web-search-tool";
 import {
-  extractionWorkingMemoryTemplate,
   reviewModelConfig,
 } from "../config/review";
-import { pgStore, pgVector } from "../storage";
 
 export const extractionAgent = new Agent({
   id: "extraction-agent",
@@ -164,19 +161,6 @@ XXX
 ---
 `,
   model: reviewModelConfig.defaultModel,
-  // memory: new Memory({
-  //   storage: pgStore,
-  //   vector: pgVector,
-  //   options: {
-  //     lastMessages: 20,
-  //     workingMemory: {
-  //       enabled: true,
-  //       scope: "resource",
-  //       template: extractionWorkingMemoryTemplate,
-  //     },
-  //     generateTitle: true,
-  //   },
-  // }),
   tools: {
     extractionItemStorageTool,
     semanticSearchTool,

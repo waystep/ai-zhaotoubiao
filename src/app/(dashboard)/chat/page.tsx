@@ -33,11 +33,12 @@ import {
   ReasoningTrigger,
   ReasoningContent,
 } from "@/components/chat";
+import { ToolCall, ToolCalls } from "@/components/chat/tool-call";
 
 const suggestions = [
-  "What can you help me with?",
-  "Explain how this chat works",
-  "Show me an example",
+  "帮我启动项目审查",
+  "查看当前的审查状态",
+  "重新提取招标文件审查项",
 ];
 
 const ChatDemo = () => {
@@ -51,15 +52,8 @@ const ChatDemo = () => {
   const handleSubmit = (message: { text?: string; files?: unknown[] }) => {
     const hasText = Boolean(message.text);
     const hasAttachments = Boolean(message.files?.length);
-
-    if (!(hasText || hasAttachments)) {
-      return;
-    }
-
-    sendMessage({
-      text: message.text || "Sent with attachments",
-      // files: message.files, // if your API supports files
-    });
+    if (!(hasText || hasAttachments)) return;
+    sendMessage({ text: message.text || "Sent with attachments" });
     setInput("");
   };
 
@@ -75,9 +69,9 @@ const ChatDemo = () => {
             {messages.length === 0 && (
               <div className="flex size-full flex-col items-center justify-center gap-3 p-8 text-center">
                 <div className="space-y-1">
-                  <h3 className="font-medium text-lg">Start a conversation</h3>
+                  <h3 className="font-medium text-lg">智能招投标预审</h3>
                   <p className="text-muted-foreground text-sm">
-                    Send a message or click a suggestion below
+                    发送消息或点击下方建议开始对话
                   </p>
                 </div>
               </div>
@@ -87,7 +81,6 @@ const ChatDemo = () => {
                 message.role === "assistant" &&
                 messageIndex === messages.length - 1;
 
-              // Check for reasoning parts
               const reasoningParts = message.parts.filter(
                 (part) => part.type === "reasoning"
               );
@@ -97,13 +90,49 @@ const ChatDemo = () => {
                 status === "streaming" &&
                 message.parts.at(-1)?.type === "reasoning";
 
+              // 收集当轮的 tool 调用
+              const toolMap = new Map<string, {
+                toolCallId: string;
+                toolName: string;
+                state: string;
+                input?: unknown;
+                output?: unknown;
+                errorText?: string;
+              }>();
+              for (const part of message.parts) {
+                if (part.type === "tool-input-available" || part.type === "tool-input-start") {
+                  const p = part as any;
+                  const entry = {
+                    toolCallId: p.toolCallId,
+                    toolName: p.toolName || "",
+                    state: "running",
+                    input: p.input,
+                  };
+                  toolMap.set(p.toolCallId, entry);
+                } else if (part.type === "tool-input-delta") {
+                  const p = part as any;
+                  const existing = toolMap.get(p.toolCallId);
+                  if (existing) {
+                    existing.input = (existing.input || "") + (p.inputTextDelta || "");
+                  }
+                } else if (part.type === "tool-output-available") {
+                  const p = part as any;
+                  const existing = toolMap.get(p.toolCallId);
+                  if (existing) {
+                    existing.state = p.error ? "error" : "complete";
+                    existing.output = p.output;
+                    if (p.error) existing.errorText = p.errorText || String(p.error);
+                  }
+                }
+              }
+              const toolParts = Array.from(toolMap.values());
+
+              const hasTools = toolParts.length > 0;
+
               return (
                 <div key={message.id}>
                   {hasReasoning && (
-                    <Reasoning
-                      className="w-full"
-                      isStreaming={isReasoningStreaming}
-                    >
+                    <Reasoning className="w-full" isStreaming={isReasoningStreaming}>
                       <ReasoningTrigger />
                       <ReasoningContent>
                         {reasoningParts
@@ -112,45 +141,51 @@ const ChatDemo = () => {
                       </ReasoningContent>
                     </Reasoning>
                   )}
+
+                  {/* Tool calls rendered as a group */}
+                  {hasTools && (
+                    <ToolCalls>
+                      {toolParts.map((t) => (
+                        <ToolCall
+                          key={t.toolCallId}
+                          toolName={t.toolName}
+                          state={t.state as any}
+                          input={t.input}
+                          output={t.output}
+                          errorText={t.errorText}
+                        />
+                      ))}
+                    </ToolCalls>
+                  )}
+
+                  {/* Text messages */}
                   {message.parts.map((part, i) => {
-                    switch (part.type) {
-                      case "text":
-                        return (
-                          <Fragment key={`${message.id}-${i}`}>
-                            <Message from={message.role}>
-                              <MessageContent>
-                                <Response>
-                                  {(part as { text: string }).text}
-                                </Response>
-                              </MessageContent>
-                            </Message>
-                            {isLastAssistantMessage && (
-                              <Actions className="mt-2">
-                                <Action
-                                  onClick={() => regenerate()}
-                                  label="Retry"
-                                >
-                                  <RefreshCcwIcon className="size-3" />
-                                </Action>
-                                <Action
-                                  onClick={() =>
-                                    navigator.clipboard.writeText(
-                                      (part as { text: string }).text
-                                    )
-                                  }
-                                  label="Copy"
-                                >
-                                  <CopyIcon className="size-3" />
-                                </Action>
-                              </Actions>
-                            )}
-                          </Fragment>
-                        );
-                      case "reasoning":
-                        return null;
-                      default:
-                        return null;
-                    }
+                    if (part.type !== "text") return null;
+                    const text = (part as any).text;
+                    if (!text?.trim()) return null;
+
+                    return (
+                      <Fragment key={`${message.id}-${i}`}>
+                        <Message from={message.role}>
+                          <MessageContent>
+                            <Response>{text}</Response>
+                          </MessageContent>
+                        </Message>
+                        {isLastAssistantMessage && (
+                          <Actions className="mt-2">
+                            <Action onClick={() => regenerate()} label="重试">
+                              <RefreshCcwIcon className="size-3" />
+                            </Action>
+                            <Action
+                              onClick={() => navigator.clipboard.writeText(text)}
+                              label="复制"
+                            >
+                              <CopyIcon className="size-3" />
+                            </Action>
+                          </Actions>
+                        )}
+                      </Fragment>
+                    );
                   })}
                 </div>
               );
@@ -172,12 +207,7 @@ const ChatDemo = () => {
           </Suggestions>
         )}
 
-        <PromptInput
-          onSubmit={handleSubmit}
-          className="mt-4"
-          globalDrop
-          multiple
-        >
+        <PromptInput onSubmit={handleSubmit} className="mt-4" globalDrop multiple>
           <PromptInputBody>
             <PromptInputAttachments>
               {(attachment) => <PromptInputAttachment data={attachment} />}
@@ -185,7 +215,7 @@ const ChatDemo = () => {
             <PromptInputTextarea
               onChange={(e) => setInput(e.target.value)}
               value={input}
-              placeholder="Send a message..."
+              placeholder="输入审查指令..."
             />
           </PromptInputBody>
           <PromptInputFooter>

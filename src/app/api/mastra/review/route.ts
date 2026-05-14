@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
 6. 最后返回简短总结
 `;
 
-    const result = await agent.generate(prompt);
+    const result = await agent.generate(prompt, { maxSteps: 25 });
 
     return NextResponse.json({
       success: true,

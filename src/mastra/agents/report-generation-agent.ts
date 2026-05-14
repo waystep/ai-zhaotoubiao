@@ -1,6 +1,7 @@
 // 报告生成智能体 - 汇总审查结果并生成最终报告
 import { Agent } from "@mastra/core/agent";
 import { Memory } from "@mastra/memory";
+import { getReportTool } from "../tools/get-report-tool";
 import { issueStorageTool } from "../tools/issue-storage-tool";
 import { structuredReviewStorageTool } from "../tools/structured-review-storage-tool";
 import {
@@ -45,6 +46,7 @@ export const reportGenerationAgent = new Agent({
     },
   }),
   tools: {
+    getReportTool,
     issueStorageTool,
     structuredReviewStorageTool,
   },

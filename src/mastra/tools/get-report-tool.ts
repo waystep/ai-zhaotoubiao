@@ -1,8 +1,8 @@
-// 报告查询工具 - 根据reportId查询报告详情
+// 报告查询工具 - 根据reportId查询报告及已有审查数据
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
 import { db } from "@/lib/db/client";
-import { reviewReports } from "@/lib/db/schema";
+import { reviewReports, reviewItemResults, reviewIssues } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 
 type ReportStatus = "pending" | "in_progress" | "completed" | "failed";
@@ -10,7 +10,7 @@ type Recommendation = "pass" | "revise" | "fail";
 
 export const getReportTool = createTool({
   id: "get-report",
-  description: "查询审查报告详情，包括状态、评分、关联项目和文档信息。用于子智能体获取报告上下文。",
+  description: "查询审查报告详情，包含已有的审查项结果和问题。用于子智能体获取当前报告完整上下文。",
   inputSchema: z.object({
     reportId: z.string().uuid().describe("审查报告ID"),
   }),
@@ -28,24 +28,11 @@ export const getReportTool = createTool({
       createdAt: z.string(),
       completedAt: z.string().optional(),
     }),
+    reviewItemResultsCount: z.number(),
+    issuesCount: z.number(),
     summary: z.string(),
   }),
-  execute: async ({ reportId }): Promise<{
-    report: {
-      id: string;
-      projectId: string;
-      documentId: string;
-      status: ReportStatus;
-      aiScore?: number;
-      recommendation?: Recommendation;
-      summary?: string;
-      documentName: string;
-      projectName: string;
-      createdAt: string;
-      completedAt?: string;
-    };
-    summary: string;
-  }> => {
+  execute: async ({ reportId }) => {
     try {
       const report = await db.query.reviewReports.findFirst({
         where: eq(reviewReports.id, reportId),
@@ -66,9 +53,31 @@ export const getReportTool = createTool({
             projectName: "",
             createdAt: new Date().toISOString(),
           },
+          reviewItemResultsCount: 0,
+          issuesCount: 0,
           summary: `报告 ${reportId} 不存在`,
         };
       }
+
+      // 查询已存储的审查数据和问题
+      const items = await db.query.reviewItemResults.findMany({
+        where: eq(reviewItemResults.reportId, reportId),
+        columns: { id: true, status: true },
+      });
+
+      const issues = await db.query.reviewIssues.findMany({
+        where: eq(reviewIssues.reportId, reportId),
+        columns: { id: true },
+      });
+
+      const passCount = items.filter((i) => i.status === "pass").length;
+      const failCount = items.filter((i) => i.status === "fail").length;
+      const reviewCount = items.filter((i) => i.status === "needs_manual_review").length;
+
+      const statusSummary =
+        items.length === 0
+          ? `⚠️ 暂无审查项结果 — 请等待 tender-review-agent 完成审查后再生成报告，不要编造数据。`
+          : `已有 ${items.length} 条审查项结果（pass:${passCount} fail:${failCount} review:${reviewCount}），${issues.length} 个问题。`;
 
       return {
         report: {
@@ -84,7 +93,9 @@ export const getReportTool = createTool({
           createdAt: report.createdAt?.toISOString() || new Date().toISOString(),
           completedAt: report.completedAt?.toISOString(),
         },
-        summary: `报告 ${report.id.slice(0, 8)}: 状态=${report.status}, 文档=${report.document?.name}, 项目=${report.project?.name}`,
+        reviewItemResultsCount: items.length,
+        issuesCount: issues.length,
+        summary: `报告 ${report.id.slice(0, 8)}: ${statusSummary}`,
       };
     } catch (error) {
       console.error("报告查询失败:", error);
@@ -98,6 +109,8 @@ export const getReportTool = createTool({
           projectName: "",
           createdAt: new Date().toISOString(),
         },
+        reviewItemResultsCount: 0,
+        issuesCount: 0,
         summary: `报告查询失败: ${error instanceof Error ? error.message : "未知错误"}`,
       };
     }

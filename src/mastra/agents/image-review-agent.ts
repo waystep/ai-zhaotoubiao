@@ -1,5 +1,5 @@
 // 图像风险分析智能体 - 分析图片内容，识别潜在风险，返回结构化结果
-import { Agent } from "@mastra/core/agent";
+import {Agent} from "@mastra/core/agent";
 
 export const imageReviewAgent = new Agent({
   id: "image-review-agent",
@@ -11,8 +11,7 @@ export const imageReviewAgent = new Agent({
   "hasRisk": true,
   "riskType": "企业Logo",
   "riskText": "某某建设集团",
-  "confidence": 0.82,
-  "reason": "图片右上角存在企业标识及企业名称"
+  "confidence": 0.82
 }
 
 风险类型：企业Logo、水印、印章、签名、资质证书、技术图纸等
@@ -27,29 +26,11 @@ export const imageReviewAgent = new Agent({
 
 规则：
 - 只报告明确可见的风险，不做推测
-- reason/suggestion 不要输出，保持精简
+- *riskText*只提取图片上的文字，不做推测、解释
 - 无风险返回 {"hasRisk":false}
 `,
   model: process.env.ALIBABA_CODING_PLAN_API_KEY
     ? "alibaba-coding-plan-cn/qwen3.6-plus"
-    : "alibaba/qwen3.6-plus",
+    : "alibaba-cn/qwen3.6-plus",
   tools: {},
 });
-
-// 辅助函数：读取图片并分析
-export async function analyzeImage(imagePath: string, mimeType: string = "image/jpeg") {
-  const fs = await import("fs");
-  const imageBuffer = fs.readFileSync(imagePath);
-
-  const result = await imageReviewAgent.generate([
-    {
-      role: "user",
-      content: [
-        { type: "image", image: imageBuffer, mimeType },
-        { type: "text", text: "分析这张图片是否存在招标审查风险，输出结构化JSON结果。" },
-      ],
-    },
-  ]);
-
-  return result;
-}

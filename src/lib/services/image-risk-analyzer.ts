@@ -20,8 +20,6 @@ interface ImageRiskResult {
   riskType?: string;
   riskText?: string;
   confidence?: number;
-  reason?: string;
-  suggestion?: string;
 }
 
 /**
@@ -59,7 +57,7 @@ const limiter = new ConcurrencyLimiter(MAX_CONCURRENT);
 /**
  * 分析单个图片
  */
-async function analyzeSingleImage(image: {
+export async function analyzeSingleImage(image: {
   id: string;
   documentId: string;
   imagePath: string;
@@ -134,8 +132,6 @@ async function analyzeSingleImage(image: {
         riskType: jsonResult.riskType,
         riskText: jsonResult.riskText,
         confidence: jsonResult.confidence?.toString(),
-        reason: jsonResult.reason,
-        suggestion: jsonResult.suggestion,
         rawResponse: jsonResult,
         updatedAt: new Date(),
       })
@@ -301,8 +297,6 @@ function parseAgentResponse(text: string): ImageRiskResult | null {
       riskType: json.riskType,
       riskText: json.riskText,
       confidence: json.confidence,
-      reason: json.reason,
-      suggestion: json.suggestion,
     };
   } catch {
     // 尝试从文本中提取 JSON
@@ -315,8 +309,6 @@ function parseAgentResponse(text: string): ImageRiskResult | null {
           riskType: json.riskType,
           riskText: json.riskText,
           confidence: json.confidence,
-          reason: json.reason,
-          suggestion: json.suggestion,
         };
       } catch {
         return null;
