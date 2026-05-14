@@ -27,7 +27,6 @@ const ALLOWED_EXT = /\.(pdf|doc|docx|xls|xlsx)$/i;
 
 const DOC_TYPES = [
   { value: "tender_doc", label: "招标文件", color: "bg-blue-50 text-blue-700 border-blue-200" },
-  { value: "legal_doc", label: "法律文件", color: "bg-purple-50 text-purple-700 border-purple-200" },
   { value: "bid_doc", label: "投标文件", color: "bg-green-50 text-green-700 border-green-200" },
 ];
 
@@ -47,13 +46,6 @@ function inferDocType(fileName: string): string {
       name.includes("投标文件") || name.includes("技术标") || name.includes("商务标") ||
       name.includes("投标书") || name.includes("投標書")) {
     return "bid_doc";
-  }
-
-  // 法律文件关键词
-  if (name.includes("法律") || name.includes("合同") || name.includes("法务") ||
-      name.includes("协议") || name.includes("契约") || name.includes("合约") ||
-      name.includes("legal") || name.includes("contract") || name.includes("agreement")) {
-    return "legal_doc";
   }
 
   // 默认招标文件
@@ -272,7 +264,7 @@ export default function DocumentUploadPage() {
         </Button>
         <h2 className="text-h2">上传文档</h2>
         <p className="text-muted-foreground">
-          上传招标文件、法律文件或投标文件（支持多选、批量拖拽，自动识别类型）
+          上传招标文件或投标文件（支持多选、批量拖拽，自动识别类型）
         </p>
       </div>
 

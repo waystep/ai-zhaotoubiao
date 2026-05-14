@@ -8,6 +8,7 @@ import {
   Bot,
   ClipboardCheck,
   FileText,
+  Loader2,
   LogOut,
   Plus,
 } from "lucide-react";
@@ -28,6 +29,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import type { LucideIcon } from "lucide-react";
 
 type ProjectOption = {
   id: string;
@@ -62,6 +64,49 @@ function isProjectReportDetailFocusPath(pathname: string): boolean {
   return /^\/projects\/[^/]+\/reports\/(?!new$)[^/]+$/.test(pathname);
 }
 
+function SidebarNavLink({
+  href,
+  pathname,
+  name,
+  icon: Icon,
+  pendingHref,
+  onNavigateIntent,
+}: {
+  href: string;
+  pathname: string;
+  name: string;
+  icon: LucideIcon;
+  pendingHref: string | null;
+  onNavigateIntent: (href: string) => void;
+}) {
+  const isActive = navItemIsActive(pathname, href);
+  const isPending = pendingHref === href;
+
+  return (
+    <Link
+      href={href}
+      aria-current={isActive ? "page" : undefined}
+      aria-busy={isPending}
+      onClick={() => onNavigateIntent(href)}
+      className={cn(
+        "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors duration-150",
+        "active:scale-[0.98] motion-reduce:active:scale-100",
+        isActive
+          ? "bg-primary/10 text-primary font-medium"
+          : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+        isPending && "bg-muted/50 text-foreground"
+      )}
+    >
+      {isPending ? (
+        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" aria-hidden />
+      ) : (
+        <Icon className="h-4 w-4 shrink-0" aria-hidden />
+      )}
+      {name}
+    </Link>
+  );
+}
+
 export default function DashboardLayout({
   children,
 }: {
@@ -71,6 +116,7 @@ export default function DashboardLayout({
   const router = useRouter();
   const { data: session } = useSession();
   const [projects, setProjects] = useState<ProjectOption[]>([]);
+  const [pendingNavHref, setPendingNavHref] = useState<string | null>(null);
 
   const selectedProjectId = selectedProjectIdFromPath(pathname);
   const hideSidebarForReportDetail = isProjectReportDetailFocusPath(pathname);
@@ -110,6 +156,15 @@ export default function DashboardLayout({
       ignore = true;
     };
   }, [projectListFetchKey]);
+
+  useEffect(() => {
+    setPendingNavHref(null);
+  }, [pathname]);
+
+  function handleSidebarNavIntent(href: string) {
+    if (navItemIsActive(pathname, href)) return;
+    setPendingNavHref(href);
+  }
 
   const projectNavigation = selectedProjectId
     ? [
@@ -227,25 +282,17 @@ export default function DashboardLayout({
           <aside className="flex w-56 shrink-0 flex-col border-r bg-card/50">
           <nav className="flex-1 space-y-1 p-3">
             {/* 全局导航 */}
-            {globalNavigation.map((item) => {
-              const isActive = navItemIsActive(pathname, item.href);
-              return (
-                <Link
-                  key={item.name}
-                  href={item.href}
-                  aria-current={isActive ? "page" : undefined}
-                  className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
-                    isActive
-                      ? "bg-primary/10 text-primary font-medium"
-                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-                  )}
-                >
-                  <item.icon className="h-4 w-4" />
-                  {item.name}
-                </Link>
-              );
-            })}
+            {globalNavigation.map((item) => (
+              <SidebarNavLink
+                key={item.name}
+                href={item.href}
+                pathname={pathname}
+                name={item.name}
+                icon={item.icon}
+                pendingHref={pendingNavHref}
+                onNavigateIntent={handleSidebarNavIntent}
+              />
+            ))}
 
             {/* 项目工作区 */}
             {selectedProjectId && (
@@ -253,25 +300,17 @@ export default function DashboardLayout({
                 <div className="px-3 py-2 text-xs font-medium text-muted-foreground">
                   项目工作区
                 </div>
-                {projectNavigation.map((item) => {
-                  const isActive = navItemIsActive(pathname, item.href);
-                  return (
-                    <Link
-                      key={item.name}
-                      href={item.href}
-                      aria-current={isActive ? "page" : undefined}
-                      className={cn(
-                        "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
-                        isActive
-                          ? "bg-primary/10 text-primary font-medium"
-                          : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-                      )}
-                    >
-                      <item.icon className="h-4 w-4" />
-                      {item.name}
-                    </Link>
-                  );
-                })}
+                {projectNavigation.map((item) => (
+                  <SidebarNavLink
+                    key={item.name}
+                    href={item.href}
+                    pathname={pathname}
+                    name={item.name}
+                    icon={item.icon}
+                    pendingHref={pendingNavHref}
+                    onNavigateIntent={handleSidebarNavIntent}
+                  />
+                ))}
               </>
             )}
 

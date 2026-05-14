@@ -260,6 +260,7 @@ export default function DocumentDetailPage() {
   }, [documentId]);
 
   const [isReanalyzing, setIsReanalyzing] = useState(false);
+  const [imageRetryingId, setImageRetryingId] = useState<string | null>(null);
   const [imageFilter, setImageFilter] = useState("hasRisk");
 
   const fetchImageRiskResult = useCallback(async () => {
@@ -508,6 +509,7 @@ export default function DocumentDetailPage() {
   }
 
   async function handleRetryImage(imageId: string) {
+    setImageRetryingId(imageId);
     try {
       const res = await fetch(`/api/documents/${documentId}/images`, {
         method: "PATCH",
@@ -520,7 +522,11 @@ export default function DocumentDetailPage() {
       } else {
         toast({ title: "重试失败", variant: "destructive" });
       }
-    } catch { toast({ title: "网络错误", variant: "destructive" }); }
+    } catch {
+      toast({ title: "网络错误", variant: "destructive" });
+    } finally {
+      setImageRetryingId(null);
+    }
   }
 
   async function handleReanalyzeImages() {
@@ -823,13 +829,24 @@ export default function DocumentDetailPage() {
                               {image.status === "pending" ? (
                                 <>
                                   <Badge variant="secondary" className="text-xs">待分析</Badge>
-                                  <button
-                                    type="button"
-                                    className="ml-auto text-xs text-blue-600 hover:text-blue-800 underline"
-                                    onClick={(e) => { e.stopPropagation(); handleRetryImage(image.id); }}
-                                  >
-                                    重试
-                                  </button>
+                                  {imageRetryingId === image.id ? (
+                                    <span className="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground">
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                      重试中
+                                    </span>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      className="ml-auto text-xs text-blue-600 hover:text-blue-800 underline disabled:pointer-events-none disabled:opacity-50"
+                                      disabled={imageRetryingId !== null}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        void handleRetryImage(image.id);
+                                      }}
+                                    >
+                                      重试
+                                    </button>
+                                  )}
                                 </>
                               ) : image.status === "processing" ? (
                                 <>
@@ -837,24 +854,46 @@ export default function DocumentDetailPage() {
                                     <Loader2 className="mr-1 h-3 w-3 animate-spin" />
                                     分析中
                                   </Badge>
-                                  <button
-                                    type="button"
-                                    className="ml-auto text-xs text-blue-600 hover:text-blue-800 underline"
-                                    onClick={(e) => { e.stopPropagation(); handleRetryImage(image.id); }}
-                                  >
-                                    重试
-                                  </button>
+                                  {imageRetryingId === image.id ? (
+                                    <span className="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground">
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                      重试中
+                                    </span>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      className="ml-auto text-xs text-blue-600 hover:text-blue-800 underline disabled:pointer-events-none disabled:opacity-50"
+                                      disabled={imageRetryingId !== null}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        void handleRetryImage(image.id);
+                                      }}
+                                    >
+                                      重试
+                                    </button>
+                                  )}
                                 </>
                               ) : image.status === "failed" ? (
                                 <>
                                   <Badge variant="destructive" className="text-xs">失败</Badge>
-                                  <button
-                                    type="button"
-                                    className="ml-auto text-xs text-blue-600 hover:text-blue-800 underline"
-                                    onClick={(e) => { e.stopPropagation(); handleRetryImage(image.id); }}
-                                  >
-                                    重试
-                                  </button>
+                                  {imageRetryingId === image.id ? (
+                                    <span className="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground">
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                      重试中
+                                    </span>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      className="ml-auto text-xs text-blue-600 hover:text-blue-800 underline disabled:pointer-events-none disabled:opacity-50"
+                                      disabled={imageRetryingId !== null}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        void handleRetryImage(image.id);
+                                      }}
+                                    >
+                                      重试
+                                    </button>
+                                  )}
                                 </>
                               ) : image.hasRisk ? (
                                 <Badge variant="destructive" className="text-xs gap-1">

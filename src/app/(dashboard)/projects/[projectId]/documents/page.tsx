@@ -37,7 +37,6 @@ interface Document {
 
 const DOC_TYPE_FILTERS: { value: string; label: string; color: string }[] = [
   { value: "tender_doc", label: "招标文件", color: "bg-blue-50 text-blue-700 border-blue-200" },
-  { value: "legal_doc", label: "法律文件", color: "bg-purple-50 text-purple-700 border-purple-200" },
   { value: "bid_doc", label: "投标文件", color: "bg-green-50 text-green-700 border-green-200" },
 ];
 
@@ -109,7 +108,8 @@ export default function ProjectDocumentsPage() {
     if (enabledTypes.length === 0) return [];
     const query = q.trim().toLowerCase();
     return documents.filter((d) => {
-      if (!enabledTypes.includes(d.docType)) return false;
+      const effectiveType = d.docType === "legal_doc" ? "tender_doc" : d.docType;
+      if (!enabledTypes.includes(effectiveType)) return false;
       if (parseStatus && d.parseStatus !== parseStatus) return false;
       if (!query) return true;
       return d.name.toLowerCase().includes(query);
@@ -499,7 +499,7 @@ export default function ProjectDocumentsPage() {
             <FileText className="h-12 w-12 text-muted-foreground mb-4" />
             <h3 className="text-h5 mb-2">暂无文档</h3>
             <p className="text-muted-foreground text-center mb-4">
-              上传招标文件、法律文件或投标文件开始审查流程
+              上传招标文件或投标文件开始审查流程
             </p>
             <Link href={`/projects/${projectId}/documents/upload`}>
               <Button size="sm">

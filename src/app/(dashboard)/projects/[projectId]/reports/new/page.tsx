@@ -88,6 +88,9 @@ export default function NewReportPage() {
       return;
     }
 
+    setError(null);
+    setReviewStep("creating");
+
     try {
       // 步骤1: 创建审查报告
       const createResponse = await fetch(`/api/projects/${projectId}/reports`, {
@@ -349,7 +352,13 @@ export default function NewReportPage() {
                 <p className="text-sm text-muted-foreground mt-2">{error}</p>
               </div>
               <div className="flex justify-center gap-4">
-                <Button variant="outline" onClick={() => setReviewStep("select")}>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setError(null);
+                    setReviewStep("select");
+                  }}
+                >
                   重试
                 </Button>
                 <Button variant="outline" onClick={() => router.push(`/projects/${projectId}/reports`)}>
