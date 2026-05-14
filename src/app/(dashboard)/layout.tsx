@@ -56,6 +56,11 @@ function projectsRouteSegment(pathname: string): string | null {
   return match?.[1] ?? null;
 }
 
+/** 审查报告详情（非列表、非新建、非会话）：隐藏侧栏以腾出横向空间 */
+function isProjectReportDetailFocusPath(pathname: string): boolean {
+  return /^\/projects\/[^/]+\/reports\/(?!new$)[^/]+$/.test(pathname);
+}
+
 export default function DashboardLayout({
   children,
 }: {
@@ -67,6 +72,7 @@ export default function DashboardLayout({
   const [projects, setProjects] = useState<ProjectOption[]>([]);
 
   const selectedProjectId = selectedProjectIdFromPath(pathname);
+  const hideSidebarForReportDetail = isProjectReportDetailFocusPath(pathname);
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId) ?? null,
     [projects, selectedProjectId]
@@ -206,10 +212,10 @@ export default function DashboardLayout({
         </div>
       </header>
 
-      {/* 下方：Sidebar + Main 并排 */}
+      {/* 下方：Sidebar + Main 并排（报告详情页隐藏侧栏） */}
       <div className="flex min-h-0 flex-1">
-        {/* 侧边栏导航 */}
-        <aside className="flex w-56 shrink-0 flex-col border-r bg-card/50">
+        {!hideSidebarForReportDetail && (
+          <aside className="flex w-56 shrink-0 flex-col border-r bg-card/50">
           <nav className="flex-1 space-y-1 p-3">
             {/* 全局导航 */}
             {globalNavigation.map((item) => {
@@ -276,6 +282,7 @@ export default function DashboardLayout({
             </Link>
           </div>
         </aside>
+        )}
 
         {/* 主内容区域 */}
         <main className="flex min-w-0 flex-1 flex-col">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -16,6 +16,7 @@ import {
   FileText,
   Loader2,
   MapPin,
+  PanelRightClose,
   Trash2,
 } from "lucide-react";
 
@@ -26,6 +27,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PdfViewer } from "@/components/document/pdf-viewer";
 import { IssueLocationViewer } from "@/components/review/issue-location-viewer";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 
 interface IssueLocation {
   pageNumber: number;
@@ -275,6 +277,11 @@ export default function ReportDetailPage() {
   const [standardPage, setStandardPage] = useState(1);
   const [isStandardPreviewLoading, setIsStandardPreviewLoading] = useState(false);
 
+  const [basisPanelOpen, setBasisPanelOpen] = useState(false);
+  const [bidSharePercent, setBidSharePercent] = useState(50);
+  const [splitDragging, setSplitDragging] = useState(false);
+  const splitRowRef = useRef<HTMLDivElement>(null);
+
   const fetchReport = useCallback(async () => {
     try {
       const response = await fetch(`/api/reports/${reportId}`);
@@ -393,6 +400,28 @@ export default function ReportDetailPage() {
     if (!selectedStandardDocId) return;
     void fetchStandardBlocks(selectedStandardDocId);
   }, [fetchStandardBlocks, selectedStandardDocId]);
+
+  useEffect(() => {
+    if (!splitDragging) return;
+    const move = (e: MouseEvent) => {
+      const el = splitRowRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const gutter = 6;
+      const inner = Math.max(1, rect.width - gutter);
+      const x = e.clientX - rect.left - gutter / 2;
+      let pct = (x / inner) * 100;
+      pct = Math.min(78, Math.max(22, pct));
+      setBidSharePercent(pct);
+    };
+    const up = () => setSplitDragging(false);
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+    return () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    };
+  }, [splitDragging]);
 
   const bidBlockById = useMemo(() => {
     const map = new Map<string, DocumentBlock>();
@@ -694,7 +723,7 @@ export default function ReportDetailPage() {
 
       {report.status === "completed" && (
         <>
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1.2fr)]">
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]">
             <div className="space-y-6">
               <Card>
                 <CardHeader>
@@ -835,93 +864,152 @@ export default function ReportDetailPage() {
             </div>
 
             <div className="space-y-6">
-              <Card className="bg-muted/20 shadow-sm">
-                <CardHeader>
-                  <CardTitle>投标文件定位预览</CardTitle>
-                  <CardDescription>点击左侧结果后，在这里定位到投标文件的具体位置</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {bidBlocks.length > 0 ? (
-                    <PdfViewer
-                      documentId={report.document.id}
-                      blocks={bidBlocks}
-                      highlightedIssues={report.issues.map((issue) => issue.location)}
-                      focusedIssue={focusedIssueOnce}
-                      hoveredIssue={hoveredIssue}
-                      issueNoByKey={issueNoByKey}
-                      onIssueHover={(loc) => {
-                        setHoveredIssue(loc);
-                        const id = loc ? issueIdByKey[`${loc.pageNumber}-${loc.blockIndex}`] : null;
-                        setHoveredIssueId(id ?? null);
+              <Card className="overflow-hidden bg-muted/20 shadow-sm">
+                <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0 pb-4">
+                  <div className="min-w-0">
+                    <CardTitle>投标文件与依据预览</CardTitle>
+                    <CardDescription>
+                      默认仅显示投标文件；需要对照招标/法律文件时展开右侧，并可拖拽中间分隔条调整比例。
+                      {report.standardDocuments.length === 0 && (
+                        <span className="mt-1 block text-amber-700/90">
+                          当前项目下暂无可预览的招标依据文件。
+                        </span>
+                      )}
+                    </CardDescription>
+                  </div>
+                  {report.standardDocuments.length > 0 && (
+                    <Button
+                      type="button"
+                      variant={basisPanelOpen ? "outline" : "secondary"}
+                      size="sm"
+                      className="shrink-0"
+                      onClick={() => {
+                        setBasisPanelOpen((open) => {
+                          const next = !open;
+                          if (next) setBidSharePercent(50);
+                          return next;
+                        });
                       }}
-                      onFocusedIssueConsumed={() => setFocusedIssueOnce(null)}
-                      currentPage={currentPage}
-                      onPageChange={setCurrentPage}
-                    />
-                  ) : (
-                    <div className="flex min-h-[260px] items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">
-                      投标文件区块加载中...
-                    </div>
+                    >
+                      {basisPanelOpen ? (
+                        <>
+                          <PanelRightClose className="mr-1.5 h-4 w-4" />
+                          收起招标依据
+                        </>
+                      ) : (
+                        <>
+                          <FileText className="mr-1.5 h-4 w-4" />
+                          对照招标依据
+                        </>
+                      )}
+                    </Button>
                   )}
-                </CardContent>
-              </Card>
-
-              <Card className="bg-muted/20 shadow-sm">
-                <CardHeader>
-                  <CardTitle>招标依据预览</CardTitle>
-                  <CardDescription>查看招标文件与法律文件原文，便于对照审查依据</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  {report.standardDocuments.length > 0 ? (
-                    <>
-                      <Tabs
-                        value={selectedStandardDocId}
-                        onValueChange={(value) => {
-                          setSelectedStandardDocId(value);
-                          setStandardPage(1);
-                        }}
-                      >
-                        <TabsList className="h-auto flex-wrap justify-start">
-                          {report.standardDocuments.map((doc) => (
-                            <TabsTrigger key={doc.id} value={doc.id} className="max-w-[220px]">
-                              <span className="truncate" title={doc.name}>
-                                {getDocTypeLabel(doc.docType)} · {doc.name}
-                              </span>
-                            </TabsTrigger>
-                          ))}
-                        </TabsList>
-                        {report.standardDocuments.map((doc) => (
-                          <TabsContent key={doc.id} value={doc.id} className="mt-4">
-                            {!doc.mimeType.toLowerCase().includes("pdf") ? (
-                              <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-                                当前仅支持 PDF 在线预览，该文件类型为 {doc.mimeType}
-                              </div>
-                            ) : doc.parseStatus !== "completed" ? (
-                              <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-                                该文件尚未完成解析，暂时无法展示区块预览
-                              </div>
-                            ) : isStandardPreviewLoading ? (
-                              <div className="flex min-h-[220px] items-center justify-center">
-                                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                              </div>
-                            ) : (
-                              <PdfViewer
-                                documentId={doc.id}
-                                blocks={standardBlocks}
-                                highlightedIssues={[]}
-                                currentPage={standardPage}
-                                onPageChange={setStandardPage}
-                              />
-                            )}
-                          </TabsContent>
-                        ))}
-                      </Tabs>
-                    </>
-                  ) : (
-                    <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-                      当前项目下暂无可预览的招标依据文件
+                <CardContent className="pt-0">
+                  <div
+                    ref={splitRowRef}
+                    className="grid w-full min-h-[min(72vh,620px)] overflow-hidden rounded-lg border bg-background/60"
+                    style={
+                      basisPanelOpen && report.standardDocuments.length > 0
+                        ? {
+                            gridTemplateColumns: `${bidSharePercent}fr 6px ${100 - bidSharePercent}fr`,
+                          }
+                        : undefined
+                    }
+                  >
+                    <div className="min-h-[min(72vh,620px)] min-w-0 overflow-auto p-1">
+                      {bidBlocks.length > 0 ? (
+                        <PdfViewer
+                          documentId={report.document.id}
+                          blocks={bidBlocks}
+                          highlightedIssues={report.issues.map((issue) => issue.location)}
+                          focusedIssue={focusedIssueOnce}
+                          hoveredIssue={hoveredIssue}
+                          issueNoByKey={issueNoByKey}
+                          onIssueHover={(loc) => {
+                            setHoveredIssue(loc);
+                            const id = loc ? issueIdByKey[`${loc.pageNumber}-${loc.blockIndex}`] : null;
+                            setHoveredIssueId(id ?? null);
+                          }}
+                          onFocusedIssueConsumed={() => setFocusedIssueOnce(null)}
+                          currentPage={currentPage}
+                          onPageChange={setCurrentPage}
+                        />
+                      ) : (
+                        <div className="flex min-h-[260px] items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">
+                          投标文件区块加载中...
+                        </div>
+                      )}
                     </div>
-                  )}
+
+                    {basisPanelOpen && report.standardDocuments.length > 0 && (
+                      <>
+                        <div
+                          role="separator"
+                          aria-orientation="vertical"
+                          aria-label="调整投标与依据预览宽度"
+                          title="拖拽调整宽度"
+                          className={cn(
+                            "min-h-[min(72vh,620px)] w-1.5 shrink-0 cursor-col-resize border-x bg-border/80 hover:bg-primary/35",
+                            splitDragging && "bg-primary/50"
+                          )}
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setSplitDragging(true);
+                          }}
+                        />
+                        <div className="flex min-h-[min(72vh,620px)] min-w-0 flex-col overflow-hidden border-l bg-muted/15">
+                          <div className="border-b bg-muted/30 px-3 py-2">
+                            <p className="text-xs font-medium text-muted-foreground">招标依据（多文档 Tab 切换）</p>
+                          </div>
+                          <div className="min-h-0 flex-1 overflow-auto p-2">
+                            <Tabs
+                              value={selectedStandardDocId}
+                              onValueChange={(value) => {
+                                setSelectedStandardDocId(value);
+                                setStandardPage(1);
+                              }}
+                            >
+                              <TabsList className="mb-3 h-auto w-full flex-wrap justify-start">
+                                {report.standardDocuments.map((doc) => (
+                                  <TabsTrigger key={doc.id} value={doc.id} className="max-w-[200px]">
+                                    <span className="truncate" title={doc.name}>
+                                      {getDocTypeLabel(doc.docType)} · {doc.name}
+                                    </span>
+                                  </TabsTrigger>
+                                ))}
+                              </TabsList>
+                              {report.standardDocuments.map((doc) => (
+                                <TabsContent key={doc.id} value={doc.id} className="mt-0">
+                                  {!doc.mimeType.toLowerCase().includes("pdf") ? (
+                                    <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+                                      当前仅支持 PDF 在线预览，该文件类型为 {doc.mimeType}
+                                    </div>
+                                  ) : doc.parseStatus !== "completed" ? (
+                                    <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+                                      该文件尚未完成解析，暂时无法展示区块预览
+                                    </div>
+                                  ) : isStandardPreviewLoading ? (
+                                    <div className="flex min-h-[200px] items-center justify-center">
+                                      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                                    </div>
+                                  ) : (
+                                    <PdfViewer
+                                      documentId={doc.id}
+                                      blocks={standardBlocks}
+                                      highlightedIssues={[]}
+                                      currentPage={standardPage}
+                                      onPageChange={setStandardPage}
+                                    />
+                                  )}
+                                </TabsContent>
+                              ))}
+                            </Tabs>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             </div>
