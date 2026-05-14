@@ -86,7 +86,7 @@ export async function POST(req: Request) {
       version: "v6",
       params: {
         messages,
-        maxSteps: 25,
+        maxSteps: 10,
         memory: {
           thread: threadId,
           resource: resourceId,

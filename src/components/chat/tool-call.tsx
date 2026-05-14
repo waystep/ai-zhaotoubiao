@@ -131,8 +131,8 @@ export const ToolCall = ({
               <p className="text-xs text-muted-foreground mb-1">
                 {agent ? "委托内容:" : "输入:"}
               </p>
-              <pre className="overflow-x-auto rounded bg-muted/50 p-2 text-xs max-h-[200px] whitespace-pre-wrap">
-                {typeof input === "string" ? truncate(input) : JSON.stringify(input, null, 2)}
+              <pre className="overflow-auto rounded bg-muted/50 p-2 text-xs max-h-[400px] whitespace-pre-wrap">
+                {typeof input === "string" ? input : JSON.stringify(input, null, 2)}
               </pre>
             </div>
           )}
@@ -141,8 +141,8 @@ export const ToolCall = ({
               <p className="text-xs text-muted-foreground mb-1">
                 {agent ? "子智能体回复:" : "输出:"}
               </p>
-              <pre className="overflow-x-auto rounded bg-green-100/50 dark:bg-green-900/20 p-2 text-xs max-h-[300px] whitespace-pre-wrap">
-                {typeof output === "string" ? truncate(output) : truncate(JSON.stringify(output, null, 2))}
+              <pre className="overflow-auto rounded bg-green-100/50 dark:bg-green-900/20 p-2 text-xs max-h-[600px] whitespace-pre-wrap">
+                {typeof output === "string" ? output : JSON.stringify(output, null, 2)}
               </pre>
             </div>
           )}

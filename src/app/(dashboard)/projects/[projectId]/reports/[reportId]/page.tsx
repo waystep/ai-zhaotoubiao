@@ -24,6 +24,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Streamdown } from "streamdown";
 import { PdfViewer } from "@/components/document/pdf-viewer";
 import { IssueLocationViewer } from "@/components/review/issue-location-viewer";
 import { useToast } from "@/hooks/use-toast";
@@ -88,18 +89,11 @@ interface ReviewItemResult {
   metadata?: Record<string, unknown>;
   reviewItem: {
     id: string;
-    /** extraction_items 标段 */
     section?: string | null;
-    /** review_items 类型，与 section 二选一展示 */
-    itemType?: string | null;
-    itemNo?: string | null;
     title: string;
-    /** extraction_items 检查点 */
     checkpoint?: string | null;
-    /** review_items 详细说明，可与 checkpoint 二选一 */
-    description?: string | null;
     consequence?: string | null;
-    location: IssueLocation;
+    blocks?: Array<{ blockId: string; pageNumber: number; blockIndex: number }>;
   };
 }
 
@@ -468,9 +462,33 @@ export default function ReportDetailPage() {
 
   const selectIssue = useCallback(
     (issue: Issue) => {
+      // 尝试通过 checkpointId 找到关联的审查项，用其 blocks 定位招标文件原文
+      if (issue.checkpointId && report?.reviewItemResults) {
+        const matchedResult = report.reviewItemResults.find(
+          (r) => r.reviewItemId === issue.checkpointId
+        );
+        if (matchedResult?.reviewItem?.blocks && matchedResult.reviewItem.blocks.length > 0) {
+          const firstBlock = matchedResult.reviewItem.blocks[0];
+          // 切换到对应标准文档并定位
+          const matchedDocId = report.standardDocuments?.find(
+            (d) => d.docType === "tender_doc"
+          )?.id;
+          if (matchedDocId) {
+            setSelectedStandardDocId(matchedDocId);
+            setStandardPage(firstBlock.pageNumber);
+            setCurrentPage(0); // 清除投标文件焦点
+            setFocusedIssueOnce({
+              pageNumber: firstBlock.pageNumber,
+              blockIndex: firstBlock.blockIndex,
+            });
+            return;
+          }
+        }
+      }
+      // 回退：定位到投标文件中的 issue 位置
       selectLocation(issue.location);
     },
-    [selectLocation]
+    [report?.reviewItemResults, report?.standardDocuments, selectLocation]
   );
 
   const locateResult = useCallback(
@@ -637,7 +655,9 @@ export default function ReportDetailPage() {
             <CardDescription>AI 生成的审查结论和建议</CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-muted-foreground">{report.summary}</p>
+            <div className="text-muted-foreground prose prose-sm max-w-none dark:prose-invert">
+              <Streamdown>{report.summary}</Streamdown>
+            </div>
             {report.recommendation && (
               <div className="mt-4 rounded-lg bg-primary/10 p-4">
                 <p className="font-semibold text-primary">
@@ -654,254 +674,123 @@ export default function ReportDetailPage() {
         </Card>
       )}
 
-      {report.structuredSummary && (
-        <div className="grid gap-4 md:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle>审查项结果概览</CardTitle>
-              <CardDescription>条目级审查结果统计</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <div className="flex items-center justify-between">
-                <span>总数</span>
-                <span className="font-medium">{report.structuredSummary.reviewItemsSummary.total}</span>
+      {report.status === "completed" && report.reviewItemResults.length > 0 && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <CardTitle className="text-base">审查项结果</CardTitle>
+                <CardDescription>核验投标文件是否满足强制性或合规性要求</CardDescription>
               </div>
-              <div className="flex items-center justify-between">
-                <span>通过</span>
-                <span className="font-medium">{report.structuredSummary.reviewItemsSummary.pass}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span>不满足</span>
-                <span className="font-medium text-red-600">
-                  {report.structuredSummary.reviewItemsSummary.fail}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span>待人工复核</span>
-                <span className="font-medium">
-                  {report.structuredSummary.reviewItemsSummary.needsManualReview}
-                </span>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>响应项结果概览</CardTitle>
-              <CardDescription>投标文件响应覆盖情况</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <div className="flex items-center justify-between">
-                <span>总数</span>
-                <span className="font-medium">{report.structuredSummary?.responseCoverageSummary?.total ?? 0}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span>已响应</span>
-                <span className="font-medium">{report.structuredSummary?.responseCoverageSummary?.answered ?? 0}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span>部分响应</span>
-                <span className="font-medium">
-                  {report.structuredSummary?.responseCoverageSummary?.partiallyAnswered ?? 0}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span>未响应</span>
-                <span className="font-medium text-red-600">
-                  {report.structuredSummary?.responseCoverageSummary?.unanswered ?? 0}
-                </span>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+              {report.structuredSummary && (
+                <div className="flex items-center gap-3 text-xs">
+                  <span className="text-muted-foreground">共 <span className="font-medium text-foreground">{report.structuredSummary.reviewItemsSummary.total}</span> 项</span>
+                  <span className="text-green-600">通过 <span className="font-medium">{report.structuredSummary.reviewItemsSummary.pass}</span></span>
+                  <span className="text-red-600">不满足 <span className="font-medium">{report.structuredSummary.reviewItemsSummary.fail}</span></span>
+                  <span className="text-yellow-600">待复核 <span className="font-medium">{report.structuredSummary.reviewItemsSummary.needsManualReview}</span></span>
+                </div>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3 max-h-96 overflow-y-auto">
+              {report.reviewItemResults.map((result) => (
+                <button key={result.id} type="button" onClick={() => handleLocateReviewItem(result)}
+                  className="w-full rounded-lg border border-border bg-background p-4 text-left transition-colors hover:border-primary/50 hover:bg-muted/30">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <Badge className={reviewStatusClasses[result.status]}>{reviewStatusLabels[result.status]}</Badge>
+                        {result.reviewItem.section && (
+                          <Badge variant="outline" className="border-blue-300 text-blue-700">{result.reviewItem.section}</Badge>
+                        )}
+                        <span className="text-sm font-medium">{result.reviewItem.title}</span>
+                      </div>
+                      {result.reviewItem.checkpoint && (
+                        <p className="mt-2 text-sm text-muted-foreground line-clamp-2">{result.reviewItem.checkpoint}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground shrink-0">
+                      <MapPin className="h-3.5 w-3.5" />
+                      <span>{result.evidenceBlockIds?.length ?? 0} 个证据块</span>
+                      <ChevronRight className="h-4 w-4" />
+                    </div>
+                  </div>
+                  <div className="mt-3 rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">{result.reason}</div>
+                </button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {report.status === "completed" && (
         <>
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]">
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,3fr)]">
             <div className="space-y-6">
-              {report.imageRisks && report.imageRisks.filter((i) => i.hasRisk).length > 0 && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <AlertCircle className="h-5 w-5 text-red-500" />
-                      暗标风险（图片审查）
-                    </CardTitle>
-                    <CardDescription>
-                      共 {report.imageRisks.length} 张图片，其中 {report.imageRisks.filter((i) => i.hasRisk).length} 张存在风险
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="max-h-64 space-y-2 overflow-y-auto">
-                      {report.imageRisks.filter((i) => i.hasRisk).map((img) => {
-                        const resolvedBlock = bidBlocks.find(
-                          (b) => b.imagePath && (b.imagePath === img.imagePath || b.imagePath.endsWith(img.imagePath))
-                        );
-                        const loc = resolvedBlock
-                          ? buildLocationFromBlock(resolvedBlock)
-                          : { pageNumber: img.pageNumber, blockIndex: 0 };
-                        return (
-                        <button
-                          key={img.id}
-                          type="button"
-                          onClick={() => selectLocation(loc)}
-                          className="w-full text-left flex items-start gap-3 rounded-md border border-red-100 bg-red-50 p-3 text-sm hover:border-red-300 hover:bg-red-100 transition-colors"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <Badge variant="outline" className="text-xs">第{img.pageNumber}页</Badge>
-                              <Badge variant="destructive" className="text-xs">{img.riskType}</Badge>
-                            </div>
-                            {img.riskText && <p className="mt-1 text-xs font-medium">{img.riskText}</p>}
-                            {img.confidence && (
-                              <p className="mt-0.5 text-xs text-muted-foreground">
-                                置信度: {Number(img.confidence) <= 1 ? `${Math.round(Number(img.confidence) * 100)}%` : `${Math.round(Number(img.confidence))}%`}
-                              </p>
-                            )}
-                          </div>
-                        </button>
-                        );
-                      })}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
               <Card>
-                <CardHeader>
-                  <CardTitle>结构化审查结果</CardTitle>
-                  <CardDescription>点击任一结果可定位到对应的投标文件位置</CardDescription>
+                <CardHeader className="pb-3">
+                  <CardTitle>问题定位</CardTitle>
+                  <CardDescription>图片暗标风险及审查发现的问题</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <Tabs defaultValue="review-items" className="w-full">
-                    <TabsList className="grid w-full grid-cols-2">
-                      <TabsTrigger value="review-items">审查项结果</TabsTrigger>
-                      <TabsTrigger value="response-items">响应项结果</TabsTrigger>
+                  <Tabs defaultValue="issues" className="w-full">
+                    <TabsList className={`grid w-full ${report.imageRisks && report.imageRisks.filter((i) => i.hasRisk).length > 0 ? "grid-cols-2" : "grid-cols-1"}`}>
+                      <TabsTrigger value="issues">问题</TabsTrigger>
+                      {report.imageRisks && report.imageRisks.filter((i) => i.hasRisk).length > 0 && (
+                        <TabsTrigger value="image-risks">
+                          图片风险
+                          <Badge variant="destructive" className="ml-1 px-1.5 py-0 text-xs">{report.imageRisks.filter((i) => i.hasRisk).length}</Badge>
+                        </TabsTrigger>
+                      )}
                     </TabsList>
-
-                    <TabsContent value="review-items" className="space-y-3">
-                      <ResultSectionHeader
-                        title="审查项结果"
-                        description="核验投标文件是否满足强制性或合规性要求"
-                        count={report.reviewItemResults.length}
+                    <TabsContent value="issues" className="mt-3">
+                      <IssueLocationViewer
+                        issues={report.issues}
+                        currentPage={currentPage}
+                        onIssueClick={selectIssue}
+                        onIssueHover={(issue) => {
+                          setHoveredIssue(issue?.location ?? null);
+                          setHoveredIssueId(issue?.id ?? null);
+                        }}
+                        hoveredIssueId={hoveredIssueId ?? undefined}
+                        issueNoById={issueNoById}
                       />
-                      <div className="space-y-3">
-                        {report.reviewItemResults.map((result) => (
-                          <button
-                            key={result.id}
-                            type="button"
-                            onClick={() => handleLocateReviewItem(result)}
-                            className="w-full rounded-lg border border-border bg-background p-4 text-left transition-colors hover:border-primary/50 hover:bg-muted/30"
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
+                    </TabsContent>
+                    {report.imageRisks && report.imageRisks.filter((i) => i.hasRisk).length > 0 && (
+                      <TabsContent value="image-risks" className="mt-3">
+                        <div className="max-h-80 space-y-2 overflow-y-auto">
+                          {report.imageRisks.filter((i) => i.hasRisk).map((img) => {
+                            const resolvedBlock = bidBlocks.find(
+                              (b) => b.imagePath && (b.imagePath === img.imagePath || b.imagePath.endsWith(img.imagePath))
+                            );
+                            const loc = resolvedBlock
+                              ? buildLocationFromBlock(resolvedBlock)
+                              : { pageNumber: img.pageNumber, blockIndex: 0 };
+                            return (
+                            <button key={img.id} type="button" onClick={() => selectLocation(loc)}
+                              className="w-full text-left flex items-start gap-3 rounded-md border border-red-100 bg-red-50 p-3 text-sm hover:border-red-300 hover:bg-red-100 transition-colors">
+                              <div className="min-w-0 flex-1">
                                 <div className="flex items-center gap-2">
-                                  <Badge className={reviewStatusClasses[result.status]}>
-                                    {reviewStatusLabels[result.status]}
-                                  </Badge>
-                                  {(result.reviewItem.section || result.reviewItem.itemType) && (
-                                    <Badge variant="outline" className="border-blue-300 text-blue-700">
-                                      {result.reviewItem.section || result.reviewItem.itemType}
-                                    </Badge>
-                                  )}
-                                  <span className="text-sm font-medium">{result.reviewItem.title}</span>
+                                  <Badge variant="outline" className="text-xs">第{img.pageNumber}页</Badge>
+                                  <Badge variant="destructive" className="text-xs">{img.riskType}</Badge>
                                 </div>
-                                {(result.reviewItem.checkpoint || result.reviewItem.description) && (
-                                  <p className="mt-2 text-sm text-muted-foreground line-clamp-2">
-                                    {result.reviewItem.checkpoint || result.reviewItem.description}
+                                {img.riskText && <p className="mt-1 text-xs font-medium">{img.riskText}</p>}
+                                {img.confidence && (
+                                  <p className="mt-0.5 text-xs text-muted-foreground">
+                                    置信度: {Number(img.confidence) <= 1 ? `${Math.round(Number(img.confidence) * 100)}%` : `${Math.round(Number(img.confidence))}%`}
                                   </p>
                                 )}
                               </div>
-                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                <MapPin className="h-3.5 w-3.5" />
-                                <span>{result.evidenceBlockIds?.length ?? 0} 个证据块</span>
-                                <ChevronRight className="h-4 w-4" />
-                              </div>
-                            </div>
-                            <div className="mt-3 rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">
-                              {result.reason}
-                            </div>
-                            {(() => {
-                              const c = result.reviewItem.consequence;
-                              if (c == null || c === "") return null;
-                              const n = Number(c);
-                              if (!Number.isFinite(n) || n <= 0) return null;
-                              return (
-                                <p className="mt-2 text-xs text-red-600">后果权重: {n.toFixed(2)}</p>
-                              );
-                            })()}
-                          </button>
-                        ))}
-                        {report.reviewItemResults.length === 0 && (
-                          <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-                            暂无审查项结果
-                          </div>
-                        )}
-                      </div>
-                    </TabsContent>
-
-                    <TabsContent value="response-items" className="space-y-3">
-                      <ResultSectionHeader
-                        title="响应项结果"
-                        description="核验投标文件是否对要求内容作出完整响应"
-                        count={report.responseItemResults?.length ?? 0}
-                      />
-                      <div className="space-y-3">
-                        {(report.responseItemResults ?? []).map((result: any) => (
-                          <button
-                            key={result.id}
-                            type="button"
-                            onClick={() => handleLocateResponseItem(result)}
-                            className="w-full rounded-lg border border-border bg-background p-4 text-left transition-colors hover:border-primary/50 hover:bg-muted/30"
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <Badge className={responseStatusClasses[result.status]}>
-                                    {responseStatusLabels[result.status]}
-                                  </Badge>
-                                  {result.responseItem.itemNo && (
-                                    <Badge variant="outline">{result.responseItem.itemNo}</Badge>
-                                  )}
-                                  <Badge variant="secondary">{result.responseItem.responseType}</Badge>
-                                </div>
-                                <p className="mt-2 font-medium">{result.responseItem.title}</p>
-                                <p className="mt-1 text-sm text-muted-foreground">
-                                  {result.responseItem.description}
-                                </p>
-                              </div>
-                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                <MapPin className="h-3.5 w-3.5" />
-                                <span>{result.evidenceBlockIds?.length ?? 0} 个证据块</span>
-                                <ChevronRight className="h-4 w-4" />
-                              </div>
-                            </div>
-                            <div className="mt-3 rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">
-                              {result.reason}
-                            </div>
-                          </button>
-                        ))}
-                        {(report.responseItemResults?.length ?? 0) === 0 && (
-                          <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-                            暂无响应项结果
-                          </div>
-                        )}
-                      </div>
-                    </TabsContent>
+                            </button>
+                            );
+                          })}
+                        </div>
+                      </TabsContent>
+                    )}
                   </Tabs>
                 </CardContent>
               </Card>
-
-              <IssueLocationViewer
-                issues={report.issues}
-                currentPage={currentPage}
-                onIssueClick={selectIssue}
-                onIssueHover={(issue) => {
-                  setHoveredIssue(issue?.location ?? null);
-                  setHoveredIssueId(issue?.id ?? null);
-                }}
-                hoveredIssueId={hoveredIssueId ?? undefined}
-                issueNoById={issueNoById}
-              />
             </div>
 
             <div className="space-y-6">

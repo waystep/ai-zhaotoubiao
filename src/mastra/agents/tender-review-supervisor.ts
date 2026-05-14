@@ -33,11 +33,10 @@ export const tenderReviewSupervisor = new Agent({
 }
 
 审查流程：
-1. 读取 extraction 已提取的审查项
-2. 如果无 extraction 已提取信息，则需要调用extraction智能体提取相关内容
-3. 如果已经有审查项，则调用审查智能体审查
-3. 审查图表/印章等图像
-4. 汇总结果生成报告
+1. 检查标准文件解析状态和已有审查项
+2. 审查项不足时委托 extraction-agent 提取（仅一次）
+3. 委托 tender-review-agent 逐条审查投标文件（仅一次）
+4. 委托 report-generation-agent 汇总生成报告（仅一次）
 
 使用时机：完整的招标文件审查任务。
 `,

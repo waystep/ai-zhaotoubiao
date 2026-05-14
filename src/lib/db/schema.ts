@@ -276,8 +276,6 @@ export const documents = pgTable("documents", {
   extractedAt: timestamp("extracted_at"),
   extractionTaskId: varchar("extraction_task_id", { length: 100 }),
   extractionProgress: integer("extraction_progress").default(0),
-  reviewItemsCount: integer("review_items_count").default(0),   // @deprecated 使用 extractionItemsCount
-  responseItemsCount: integer("response_items_count").default(0), // @deprecated 使用 extractionItemsCount
   extractionItemsCount: integer("extraction_items_count").default(0),
   autoExtract: boolean("auto_extract").default(false),
   createdAt: timestamp("created_at").defaultNow(),
