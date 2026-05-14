@@ -20,6 +20,7 @@
     "db:patch-review-issues": "tsx scripts/apply-review-issues-columns.ts",
     "db:patch-review-items": "tsx scripts/apply-review-items-tables.ts",
     "db:patch-review-item-results": "tsx scripts/apply-review-item-results-tables.ts",
+    "db:mock-report": "tsx scripts/mock-review-report.ts",
     "mastra:dev": "mastra dev",
     "mastra:build": "mastra build"
   },

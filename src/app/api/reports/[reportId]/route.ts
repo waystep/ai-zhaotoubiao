@@ -112,9 +112,10 @@ export async function GET(request: Request, context: RouteContext) {
             reviewItem: {
               columns: {
                 id: true,
-                section: true,
+                itemType: true,
+                itemNo: true,
                 title: true,
-                checkpoint: true,
+                description: true,
                 consequence: true,
                 location: true,
               },

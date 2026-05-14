@@ -467,56 +467,59 @@ export default function ProjectReportsPage() {
                       ariaLabel={`选择 ${report.document.name}`}
                     />
 
-                    {/* 文档名称 */}
                     <Link
                       href={`/projects/${projectId}/reports/${report.id}`}
                       onClick={() => saveNow()}
-                      className="flex items-center gap-3 min-w-0 group"
+                      className="contents group cursor-pointer"
+                      aria-label={`查看报告：${report.document.name}`}
                     >
-                      {getStatusIcon(report.status)}
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium truncate group-hover:text-primary transition-colors">
-                          {report.document.name}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {formatDateCN(report.createdAt)}
+                      {/* 文档名称 */}
+                      <div className="flex items-center gap-3 min-w-0">
+                        {getStatusIcon(report.status)}
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium truncate group-hover:text-primary transition-colors">
+                            {report.document.name}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {formatDateCN(report.createdAt)}
+                          </div>
                         </div>
                       </div>
-                    </Link>
 
-                    {/* 类型 */}
-                    <div className="w-[100px] text-center">
-                      <Badge variant="outline" className="text-xs">
-                        {docTypeLabel(report.document.docType)}
-                      </Badge>
-                    </div>
-
-                    {/* 评分 */}
-                    <div className="w-[80px] text-center">
-                      {report.aiScore ? (
-                        <span className="text-sm font-medium text-primary">{report.aiScore}分</span>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">-</span>
-                      )}
-                    </div>
-
-                    {/* 建议 */}
-                    <div className="w-[100px] text-center">
-                      {rec ? (
-                        <Badge className={cn("text-xs", rec.color)}>
-                          {rec.label}
+                      {/* 类型 */}
+                      <div className="w-[100px] text-center">
+                        <Badge variant="outline" className="text-xs">
+                          {docTypeLabel(report.document.docType)}
                         </Badge>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">-</span>
-                      )}
-                    </div>
+                      </div>
 
-                    {/* 状态 */}
-                    <div className="w-[80px] flex items-center justify-center">
-                      <Badge variant="outline" className="text-xs">
-                        {reviewStatusLabel(report.status)}
-                      </Badge>
-                    </div>
+                      {/* 评分 */}
+                      <div className="w-[80px] text-center">
+                        {report.aiScore ? (
+                          <span className="text-sm font-medium text-primary">{report.aiScore}分</span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">-</span>
+                        )}
+                      </div>
+
+                      {/* 建议 */}
+                      <div className="w-[100px] text-center">
+                        {rec ? (
+                          <Badge className={cn("text-xs", rec.color)}>
+                            {rec.label}
+                          </Badge>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">-</span>
+                        )}
+                      </div>
+
+                      {/* 状态 */}
+                      <div className="w-[80px] flex items-center justify-center">
+                        <Badge variant="outline" className="text-xs">
+                          {reviewStatusLabel(report.status)}
+                        </Badge>
+                      </div>
+                    </Link>
 
                     {/* 操作 */}
                     <div className="w-[60px] flex items-center justify-center">

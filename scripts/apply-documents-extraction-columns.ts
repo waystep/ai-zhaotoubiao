@@ -96,6 +96,16 @@ const STATEMENTS = [
   BEGIN
     IF NOT EXISTS (
       SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'documents' AND column_name = 'extraction_items_count'
+    ) THEN
+      ALTER TABLE documents ADD COLUMN extraction_items_count integer DEFAULT 0;
+    END IF;
+  END $$;`,
+
+  `DO $$
+  BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
       WHERE table_schema = 'public' AND table_name = 'documents' AND column_name = 'auto_extract'
     ) THEN
       ALTER TABLE documents ADD COLUMN auto_extract boolean DEFAULT false;
@@ -110,7 +120,7 @@ async function main() {
       await sql.unsafe(stmt);
     }
     console.log(
-      "documents 表 extraction / 计数 / auto_extract 相关列已就绪（若原本已有则未改动）。"
+      "documents 表 extraction / 计数（含 extraction_items_count）/ auto_extract 相关列已就绪（若原本已有则未改动）。"
     );
   } finally {
     await sql.end({ timeout: 5 });

@@ -861,9 +861,10 @@ export const reviewItemResultsRelations = relations(reviewItemResults, ({ one })
     fields: [reviewItemResults.reportId],
     references: [reviewReports.id],
   }),
-  reviewItem: one(extractionItems, {
+  // review_item_results.review_item_id 外键指向 review_items（旧库无 extraction_items 表）
+  reviewItem: one(reviewItems, {
     fields: [reviewItemResults.reviewItemId],
-    references: [extractionItems.id],
+    references: [reviewItems.id],
   }),
 }));
 

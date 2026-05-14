@@ -85,9 +85,16 @@ interface ReviewItemResult {
   metadata?: Record<string, unknown>;
   reviewItem: {
     id: string;
+    /** extraction_items 标段 */
     section?: string | null;
+    /** review_items 类型，与 section 二选一展示 */
+    itemType?: string | null;
+    itemNo?: string | null;
     title: string;
+    /** extraction_items 检查点 */
     checkpoint?: string | null;
+    /** review_items 详细说明，可与 checkpoint 二选一 */
+    description?: string | null;
     consequence?: string | null;
     location: IssueLocation;
   };
@@ -721,14 +728,16 @@ export default function ReportDetailPage() {
                                   <Badge className={reviewStatusClasses[result.status]}>
                                     {reviewStatusLabels[result.status]}
                                   </Badge>
-                                  {result.reviewItem.section && (
-                                    <Badge variant="outline" className="border-blue-300 text-blue-700">{result.reviewItem.section}</Badge>
+                                  {(result.reviewItem.section || result.reviewItem.itemType) && (
+                                    <Badge variant="outline" className="border-blue-300 text-blue-700">
+                                      {result.reviewItem.section || result.reviewItem.itemType}
+                                    </Badge>
                                   )}
                                   <span className="text-sm font-medium">{result.reviewItem.title}</span>
                                 </div>
-                                {result.reviewItem.checkpoint && (
+                                {(result.reviewItem.checkpoint || result.reviewItem.description) && (
                                   <p className="mt-2 text-sm text-muted-foreground line-clamp-2">
-                                    {result.reviewItem.checkpoint}
+                                    {result.reviewItem.checkpoint || result.reviewItem.description}
                                   </p>
                                 )}
                               </div>
@@ -741,11 +750,15 @@ export default function ReportDetailPage() {
                             <div className="mt-3 rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">
                               {result.reason}
                             </div>
-                            {result.reviewItem.consequence != null && Number(result.reviewItem.consequence) > 0 && (
-                              <p className="mt-2 text-xs text-red-600">
-                                后果权重: {Number(result.reviewItem.consequence).toFixed(2)}
-                              </p>
-                            )}
+                            {(() => {
+                              const c = result.reviewItem.consequence;
+                              if (c == null || c === "") return null;
+                              const n = Number(c);
+                              if (!Number.isFinite(n) || n <= 0) return null;
+                              return (
+                                <p className="mt-2 text-xs text-red-600">后果权重: {n.toFixed(2)}</p>
+                              );
+                            })()}
                           </button>
                         ))}
                         {report.reviewItemResults.length === 0 && (
