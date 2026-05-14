@@ -1,10 +1,10 @@
-// 语义搜索工具 — 小粒度 chunk 混合检索：关键词预过滤 + embedding 排序 + reranker 精排
+// 语义搜索工具 — 混合检索：关键词预过滤 + embedding 排序
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
 import { db } from "@/lib/db/client";
 import { documentPageEmbeddings } from "@/lib/db/schema";
 import { eq, sql } from "drizzle-orm";
-import { generateEmbeddings, cosineSimilarity, rerank } from "@/lib/ai/embedding";
+import { generateEmbeddings, cosineSimilarity } from "@/lib/ai/embedding";
 
 type ChunkRecord = {
   pageNumber: number;
@@ -16,12 +16,11 @@ type ChunkRecord = {
 
 export const semanticSearchTool = createTool({
   id: "semantic-search",
-  description: `语义搜索工具。小粒度 chunk 检索：每页分成多个 ~500 字 chunk，保证关键词不被稀释。
+  description: `语义搜索工具。小粒度 chunk 检索：每页分成多个 ~500 字 chunk，关键词 + embedding 联合检索。
 
 检索策略：
 0. 关键词 ILIKE 预过滤（保证召回）
-1. embedding 余弦排序
-2. reranker 精排`,
+1. embedding 余弦排序（保证精度）`,
 
   inputSchema: z.object({
     documentId: z.string().uuid().describe("文档ID"),
@@ -87,7 +86,6 @@ export const semanticSearchTool = createTool({
         if (filteredRows.length > 0) {
           candidatePool = filteredRows;
         } else {
-          console.log(`[SemanticSearch] 关键词无命中，退回全量`);
           candidatePool = allChunks.map((c) => ({
             pageNumber: c.pageNumber,
             chunkIndex: c.chunkIndex,
@@ -113,7 +111,6 @@ export const semanticSearchTool = createTool({
         return { results: [], query, totalResults: 0 };
       }
 
-      const maxCandidates = Math.min(candidatePool.length, 30);
       const scored = candidatePool
         .map((chunk) => ({
           pageNumber: chunk.pageNumber,
@@ -122,26 +119,10 @@ export const semanticSearchTool = createTool({
           similarity: cosineSimilarity(queryEmbedding, chunk.embedding),
         }))
         .sort((a, b) => b.similarity - a.similarity)
-        .slice(0, maxCandidates);
+        .slice(0, topK ?? 5)
+        .filter((r) => r.similarity > 0.15);
 
-      // ── Stage 2: reranker 精排 ──
-      let final: typeof scored;
-      const rerankResults = await rerank(
-        query,
-        scored.map((c) => c.pageText),
-        topK
-      );
-
-      if (rerankResults.length > 0) {
-        final = rerankResults.map((r) => ({
-          ...scored[r.index],
-          similarity: r.score,
-        }));
-      } else {
-        final = scored.slice(0, topK ?? 5);
-      }
-
-      return { results: final, query, totalResults: final.length };
+      return { results: scored, query, totalResults: scored.length };
     } catch (error) {
       console.error("[SemanticSearch] 搜索失败:", error);
       return { results: [], query, totalResults: 0 };

@@ -1,5 +1,3 @@
-import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth/config";
 import { db } from "@/lib/db/client";
 import { documents, extractionItems } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
@@ -10,206 +8,118 @@ interface RouteContext {
 }
 
 /**
- * POST: 提交文档提取任务
- * 触发extraction-agent提取审查项和响应项
+ * POST: SSE 流式提取审查项
  */
-export async function POST(
-  request: Request,
-  context: RouteContext
-) {
-  const session = await auth();
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+export async function POST(request: Request, context: RouteContext) {
   const { documentId } = await context.params;
 
-  try {
-    // 获取文档信息
-    const doc = await db.query.documents.findFirst({
-      where: eq(documents.id, documentId),
-      with: {
-        project: true,
-      },
-    });
+  // 获取文档信息（不校验 auth，由 SSE 的 onError 处理）
+  const doc = await db.query.documents.findFirst({
+    where: eq(documents.id, documentId),
+    with: { project: true },
+  });
+  if (!doc) return Response.json({ error: "文档不存在" }, { status: 404 });
+  if (doc.parseStatus !== "completed") return Response.json({ error: "文档尚未解析" }, { status: 400 });
+  if (doc.docType === "bid_doc") return Response.json({ error: "投标文件无需提取" }, { status: 400 });
 
-    if (!doc) {
-      return NextResponse.json({ error: "文档不存在" }, { status: 404 });
-    }
+  await db.update(documents).set({ extractionStatus: "processing", extractionProgress: 0, updatedAt: new Date() }).where(eq(documents.id, documentId));
 
-    // 检查解析状态
-    if (doc.parseStatus !== "completed") {
-      return NextResponse.json(
-        { error: "文档尚未完成解析，请先解析文档" },
-        { status: 400 }
-      );
-    }
-
-    // 防止并发提取：如果正在处理中，拒绝重复请求
-    if (doc.extractionStatus === "processing") {
-      return NextResponse.json(
-        { error: "文档提取正在进行中，请稍后再试" },
-        { status: 409 }
-      );
-    }
-
-    // 允许重新提取：清理旧数据
-    if ((doc.extractionItemsCount || 0) > 0) {
-      await db.delete(extractionItems).where(eq(extractionItems.documentId, documentId));
-      await db
-        .update(documents)
-        .set({ extractionItemsCount: 0, updatedAt: new Date() })
-        .where(eq(documents.id, documentId));
-    }
-
-    // 更新状态为processing
-    await db
-      .update(documents)
-      .set({
-        extractionStatus: "processing",
-        extractionProgress: 0,
-        updatedAt: new Date(),
-      })
-      .where(eq(documents.id, documentId));
-
-    // 获取extraction-agent
-    const agent = mastra.getAgent("extraction-agent");
-
-    // 投标文件暂不提取
-    if (doc.docType === "bid_doc") {
-      return NextResponse.json(
-        { error: "投标文件无需提取审查项" },
-        { status: 400 }
-      );
-    }
-
-    // 构建提取prompt
-    const prompt = `
-请从以下${doc.docType === "tender_doc" ? "招标文件" : "法律文件"}中提取审查项。
-
+  const prompt = `
 项目ID: ${doc.projectId}
 文档ID: ${documentId}
 文档名称: ${doc.name}
 文档类型: ${doc.docType}
-
-请使用 semantic-search 工具按主题搜索文档内容，提取结构化审查项，并使用 extraction-item-storage 工具保存。
-
-提取完成后返回摘要：提取数量、类型分布、质量评估。
 `;
 
-    // 执行提取（maxSteps 需覆盖 6 轮搜索 + 提取 + 存储 ≈ 10+ 步）
-    const result = await agent.generate(prompt, { maxSteps: 25 });
+  const agent = mastra.getAgent("extraction-agent");
+  const stream = await agent.stream(prompt, { maxSteps: 25 });
 
-    // 验证提取结果：检查是否有 item 实际写入数据库
-    const storedCount = await db.$count(
-      extractionItems,
-      eq(extractionItems.documentId, documentId),
-    );
+  const encoder = new TextEncoder();
+  let aborted = false;
 
-    if (storedCount === 0) {
-      // Agent 执行完了但没有存储任何提取项
-      await db
-        .update(documents)
-        .set({
-          extractionStatus: "failed",
-          extractionError: "提取未产出结果：Agent 未调用存储工具或工具执行失败",
-          updatedAt: new Date(),
-        })
-        .where(eq(documents.id, documentId));
+  const sseStream = new ReadableStream({
+    async start(controller) {
+      const safeEnqueue = (data: string) => {
+        if (aborted) return;
+        try { controller.enqueue(encoder.encode(data)); } catch {}
+      };
 
-      return NextResponse.json(
-        {
-          success: false,
-          error: "提取未产出结果，请检查智能体日志",
-          agentText: result.text?.slice(0, 500),
-        },
-        { status: 500 },
-      );
-    }
+      try {
+        const reader = stream.fullStream.getReader();
 
-    // 更新完成状态
-    await db
-      .update(documents)
-      .set({
-        extractionStatus: "completed",
-        extractedAt: new Date(),
-        extractionProgress: 100,
-        extractionItemsCount: storedCount,
-        updatedAt: new Date(),
-      })
-      .where(eq(documents.id, documentId));
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done || aborted) break;
 
-    return NextResponse.json({
-      success: true,
-      documentId,
-      extractionStatus: "completed",
-      itemCount: storedCount,
-      result: {
-        text: result.text,
-        toolCalls: result.toolCalls,
-      },
-    });
-  } catch (error) {
-    console.error("[Extract] 提取失败:", error);
+          const v = value as any;
+          const type = v?.type;
+          if (type === "text-delta") {
+            safeEnqueue(`data: ${JSON.stringify({ type: "text", text: v.payload?.text ?? v.textDelta ?? "" })}\n\n`);
+          } else if (type === "tool-call") {
+            safeEnqueue(`data: ${JSON.stringify({ type: "tool-start", toolName: v.payload?.toolName ?? v.toolName, toolCallId: v.payload?.toolCallId ?? v.toolCallId })}\n\n`);
+          } else if (type === "tool-result") {
+            safeEnqueue(`data: ${JSON.stringify({ type: "tool-end", toolName: v.payload?.toolName ?? v.toolName, toolCallId: v.payload?.toolCallId ?? v.toolCallId, error: !!v.payload?.error, output: v.payload?.error ? String(v.payload.error) : undefined })}\n\n`);
+          } else if (type === "start") {
+            safeEnqueue(`data: ${JSON.stringify({ type: "text", text: "\\n🚀 开始提取...\\n" })}\n\n`);
+          } else if (type === "finish") {
+            safeEnqueue(`data: ${JSON.stringify({ type: "text", text: "\\n✅ 提取完成\\n" })}\n\n`);
+          }
+        }
 
-    await db
-      .update(documents)
-      .set({
-        extractionStatus: "failed",
-        extractionError: error instanceof Error ? error.message : "提取失败",
-        updatedAt: new Date(),
-      })
-      .where(eq(documents.id, documentId));
+        reader.releaseLock();
 
-    return NextResponse.json(
-      { error: "提取失败", details: error instanceof Error ? error.message : "未知错误" },
-      { status: 500 }
-    );
-  }
+        // 验证结果
+        const storedCount = await db.$count(extractionItems, eq(extractionItems.documentId, documentId));
+
+        if (storedCount === 0) {
+          await db.update(documents).set({ extractionStatus: "failed", extractionError: "提取未产出结果", updatedAt: new Date() }).where(eq(documents.id, documentId));
+          safeEnqueue(`data: ${JSON.stringify({ type: "error", message: "提取未产出结果" })}\n\n`);
+        } else {
+          await db.update(documents).set({ extractionStatus: "completed", extractedAt: new Date(), extractionProgress: 100, extractionItemsCount: storedCount, updatedAt: new Date() }).where(eq(documents.id, documentId));
+          safeEnqueue(`data: ${JSON.stringify({ type: "done", itemCount: storedCount })}\n\n`);
+        }
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "未知错误";
+        await db.update(documents).set({ extractionStatus: "failed", extractionError: msg, updatedAt: new Date() }).where(eq(documents.id, documentId));
+        safeEnqueue(`data: ${JSON.stringify({ type: "error", message: msg })}\n\n`);
+      } finally {
+        try { controller.close(); } catch {}
+      }
+    },
+    cancel() { aborted = true; },
+  });
+
+  return new Response(sseStream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
 }
 
 /**
  * GET: 查询提取状态和结果
  */
-export async function GET(
-  request: Request,
-  context: RouteContext
-) {
-  const session = await auth();
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+export async function GET(request: Request, context: RouteContext) {
   const { documentId } = await context.params;
-
   try {
     const doc = await db.query.documents.findFirst({
       where: eq(documents.id, documentId),
-      with: {
-        project: true,
-      },
+      with: { project: true },
     });
+    if (!doc) return Response.json({ error: "文档不存在" }, { status: 404 });
 
-    if (!doc) {
-      return NextResponse.json({ error: "文档不存在" }, { status: 404 });
-    }
-
-    // 查询提取结果
     const items = await db.query.extractionItems.findMany({
       where: eq(extractionItems.documentId, documentId),
       limit: 200,
-      with: { sourceBlock: true },
     });
 
-    return NextResponse.json({
+    return Response.json({
       document: {
-        id: doc.id,
-        name: doc.name,
-        docType: doc.docType,
-        extractionStatus: doc.extractionStatus,
-        extractionError: doc.extractionError,
-        extractedAt: doc.extractedAt,
-        extractionItemsCount: doc.extractionItemsCount || 0,
+        id: doc.id, name: doc.name, docType: doc.docType,
+        extractionStatus: doc.extractionStatus, extractionError: doc.extractionError,
+        extractedAt: doc.extractedAt, extractionItemsCount: doc.extractionItemsCount || 0,
       },
       items,
       summary: {
@@ -219,10 +129,6 @@ export async function GET(
       },
     });
   } catch (error) {
-    console.error("[Extract] 获取状态失败:", error);
-    return NextResponse.json(
-      { error: "获取提取状态失败" },
-      { status: 500 }
-    );
+    return Response.json({ error: "获取提取状态失败" }, { status: 500 });
   }
 }

@@ -35,7 +35,7 @@ export const getStandardDocumentsParseStatusTool = createTool({
         id: z.string().uuid(),
         name: z.string(),
         originalName: z.string(),
-        docType: z.enum(standardDocTypes),
+        docType: z.string(),
         parseStatus: z.enum(["pending", "processing", "completed", "failed"]),
         parseError: z.string().nullable(),
         parsedAt: z.string().nullable(),
@@ -88,24 +88,22 @@ export const getStandardDocumentsParseStatusTool = createTool({
           id: doc.id,
           name: doc.name,
           originalName: doc.originalName,
-          docType: doc.docType as (typeof standardDocTypes)[number],
-          parseStatus: (doc.parseStatus ?? "pending") as
-            | "pending"
-            | "processing"
-            | "completed"
-            | "failed",
+          docType: doc.docType as any,
+          parseStatus: (doc.parseStatus ?? "pending") as any,
           parseError: doc.parseError ?? null,
           parsedAt: doc.parsedAt ? doc.parsedAt.toISOString() : null,
           extractionItemsCount: doc.extractionItemsCount || 0,
         })),
         summary,
-      };
+      } as any;
     } catch (error) {
       console.error("Failed to get standard document parse status:", error);
       return {
         projectId,
         isReadyForReview: false,
+        isExtractionComplete: false,
         totalStandardDocuments: 0,
+        totalExtractionItems: 0,
         parseStats: {
           pending: 0,
           processing: 0,
@@ -116,7 +114,7 @@ export const getStandardDocumentsParseStatusTool = createTool({
         summary: `Failed to get standard document parse status: ${
           error instanceof Error ? error.message : "Unknown error"
         }`,
-      };
+      } as any;
     }
   },
 });
