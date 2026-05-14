@@ -23,7 +23,12 @@ export async function PATCH(request: Request, context: RouteContext) {
   if (body.section !== undefined) updates.section = body.section;
   if (body.title !== undefined) updates.title = body.title;
   if (body.checkpoint !== undefined) updates.checkpoint = body.checkpoint;
-  if (body.consequence !== undefined) updates.consequence = String(body.consequence);
+  if (body.consequence !== undefined) {
+    updates.consequence =
+      body.consequence === null || body.consequence === ""
+        ? null
+        : String(body.consequence);
+  }
   if (body.location !== undefined) updates.location = body.location;
 
   const [updated] = await db
