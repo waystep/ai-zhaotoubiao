@@ -112,37 +112,10 @@ export async function GET(request: Request, context: RouteContext) {
             reviewItem: {
               columns: {
                 id: true,
-                itemType: true,
-                itemNo: true,
+                section: true,
                 title: true,
-                description: true,
+                checkpoint: true,
                 consequence: true,
-                location: true,
-              },
-            },
-          },
-        },
-        responseItemResults: {
-          columns: {
-            id: true,
-            reportId: true,
-            responseItemId: true,
-            status: true,
-            reason: true,
-            evidenceBlockIds: true,
-            confidence: true,
-            metadata: true,
-            createdAt: true,
-            updatedAt: true,
-          },
-          with: {
-            responseItem: {
-              columns: {
-                id: true,
-                responseType: true,
-                itemNo: true,
-                title: true,
-                description: true,
                 location: true,
               },
             },
@@ -154,14 +127,6 @@ export async function GET(request: Request, context: RouteContext) {
     if (!report || report.project?.orgId !== session.user?.orgId) {
       return NextResponse.json({ error: "Report not found" }, { status: 404 });
     }
-
-    const responseCoverageSummary = {
-      total: report.responseItemResults.length,
-      answered: report.responseItemResults.filter((item) => item.status === "answered").length,
-      partiallyAnswered: report.responseItemResults.filter((item) => item.status === "partially_answered").length,
-      unanswered: report.responseItemResults.filter((item) => item.status === "unanswered").length,
-      notApplicable: report.responseItemResults.filter((item) => item.status === "not_applicable").length,
-    };
 
     const reviewItemsSummary = {
       total: report.reviewItemResults.length,
@@ -190,7 +155,6 @@ export async function GET(request: Request, context: RouteContext) {
         ...report,
         standardDocuments,
         structuredSummary: {
-          responseCoverageSummary,
           reviewItemsSummary,
         },
       },

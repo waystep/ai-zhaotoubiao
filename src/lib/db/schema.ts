@@ -400,8 +400,6 @@ export const imageRiskAnalysis = pgTable("image_risk_analysis", {
   riskType: varchar("risk_type", { length: 100 }),
   riskText: varchar("risk_text", { length: 255 }),
   confidence: decimal("confidence", { precision: 5, scale: 2 }),
-  reason: text("reason"),
-  suggestion: text("suggestion"),
   // 原始响应
   rawResponse: jsonb("raw_response").default({}),
   // 审核状态
@@ -863,9 +861,9 @@ export const reviewItemResultsRelations = relations(reviewItemResults, ({ one })
     fields: [reviewItemResults.reportId],
     references: [reviewReports.id],
   }),
-  reviewItem: one(reviewItems, {
+  reviewItem: one(extractionItems, {
     fields: [reviewItemResults.reviewItemId],
-    references: [reviewItems.id],
+    references: [extractionItems.id],
   }),
 }));
 

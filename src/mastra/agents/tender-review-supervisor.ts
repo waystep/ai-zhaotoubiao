@@ -2,10 +2,8 @@
 import { Agent } from "@mastra/core/agent";
 import { Memory } from "@mastra/memory";
 import { extractionAgent } from "./extraction-agent";
+import { tenderReviewAgent } from "./tender-review-agent";
 import { reportGenerationAgent } from "./report-generation-agent";
-import { documentReaderTool } from "../tools/document-reader-tool";
-import { getReviewItemsTool } from "../tools/get-review-items-tool";
-import { getResponseItemsTool } from "../tools/get-response-items-tool";
 import { getStandardDocumentsParseStatusTool } from "../tools/get-standard-documents-parse-status-tool";
 import {
   reviewModelConfig,
@@ -13,8 +11,6 @@ import {
   supervisorWorkingMemoryTemplate,
 } from "../config/review";
 import { pgStore, pgVector } from "../storage";
-import {tenderReviewAgent} from "@/mastra/agents/tender-review-agent";
-import {tenderResponseAgent} from "@/mastra/agents/tender-response-agent";
 
 export const tenderReviewSupervisor = new Agent({
   id: "tender-review-supervisor",
@@ -24,7 +20,7 @@ export const tenderReviewSupervisor = new Agent({
 输入要求：
 - projectId: 项目ID
 - reportId: 审查报告ID
-- targetDocType: 文档类型(tender_doc/legal_doc/bid_doc)
+- documentId: 资料ID
 
 输出格式：
 {
@@ -37,8 +33,9 @@ export const tenderReviewSupervisor = new Agent({
 }
 
 审查流程：
-1. 读取 extraction 已提取的审查项和响应项
-2. 审查文本/表格内容合规性
+1. 读取 extraction 已提取的审查项
+2. 如果无 extraction 已提取信息，则需要调用extraction智能体提取相关内容
+3. 如果已经有审查项，则调用审查智能体审查
 3. 审查图表/印章等图像
 4. 汇总结果生成报告
 
@@ -62,13 +59,9 @@ export const tenderReviewSupervisor = new Agent({
   agents: {
     extractionAgent,
     tenderReviewAgent,
-    tenderResponseAgent,
     reportGenerationAgent,
   },
   tools: {
-    documentReaderTool,
-    getReviewItemsTool,
-    getResponseItemsTool,
     getStandardDocumentsParseStatusTool,
   },
 });

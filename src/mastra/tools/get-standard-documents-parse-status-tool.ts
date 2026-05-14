@@ -10,7 +10,7 @@ const standardDocTypes = ["tender_doc", "legal_doc"] as const;
 export const getStandardDocumentsParseStatusTool = createTool({
   id: "get-standard-documents-parse-status",
   description:
-    "Get parse status for standard documents only (tender_doc and legal_doc). Never includes bid documents and never uses extraction status.",
+    "Get parse AND extraction status for standard documents (tender_doc and legal_doc). Used to decide whether extraction is needed before review. Never includes bid documents.",
   inputSchema: z.object({
     projectId: z.string().uuid().describe("Project ID"),
   }),
@@ -19,7 +19,11 @@ export const getStandardDocumentsParseStatusTool = createTool({
     isReadyForReview: z
       .boolean()
       .describe("True when all standard documents have completed parsing"),
+    isExtractionComplete: z
+      .boolean()
+      .describe("True when at least one standard document has extraction items (审查项) stored"),
     totalStandardDocuments: z.number().int().nonnegative(),
+    totalExtractionItems: z.number().int().nonnegative().describe("Total extraction items across all standard docs"),
     parseStats: z.object({
       pending: z.number().int().nonnegative(),
       processing: z.number().int().nonnegative(),
@@ -35,6 +39,7 @@ export const getStandardDocumentsParseStatusTool = createTool({
         parseStatus: z.enum(["pending", "processing", "completed", "failed"]),
         parseError: z.string().nullable(),
         parsedAt: z.string().nullable(),
+        extractionItemsCount: z.number().int().nonnegative(),
       })
     ),
     summary: z.string(),
@@ -60,15 +65,24 @@ export const getStandardDocumentsParseStatusTool = createTool({
         docs.length > 0 &&
         docs.every((doc) => doc.parseStatus === "completed");
 
+      // 检查提取状态：任一标准文档有提取项即视为已完成
+      const totalExtractionItems = docs.reduce(
+        (sum, doc) => sum + (doc.extractionItemsCount || 0),
+        0
+      );
+      const isExtractionComplete = totalExtractionItems > 0;
+
       const summary =
         docs.length === 0
           ? "No standard documents found. Review cannot start until tender or legal documents are uploaded and parsed."
-          : `Found ${docs.length} standard documents. Parse status: ${parseStats.completed} completed, ${parseStats.processing} processing, ${parseStats.pending} pending, ${parseStats.failed} failed.`;
+          : `Found ${docs.length} standard documents. Parse: ${parseStats.completed}/${docs.length} completed. Extraction: ${totalExtractionItems} items total. ${isExtractionComplete ? "Extraction is COMPLETE — do NOT call extraction-agent." : "Extraction needed — delegate to extraction-agent first."}`;
 
       return {
         projectId,
         isReadyForReview,
+        isExtractionComplete,
         totalStandardDocuments: docs.length,
+        totalExtractionItems,
         parseStats,
         documents: docs.map((doc) => ({
           id: doc.id,
@@ -82,6 +96,7 @@ export const getStandardDocumentsParseStatusTool = createTool({
             | "failed",
           parseError: doc.parseError ?? null,
           parsedAt: doc.parsedAt ? doc.parsedAt.toISOString() : null,
+          extractionItemsCount: doc.extractionItemsCount || 0,
         })),
         summary,
       };

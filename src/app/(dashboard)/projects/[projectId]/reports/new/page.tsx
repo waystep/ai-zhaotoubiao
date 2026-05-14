@@ -105,7 +105,7 @@ export default function NewReportPage() {
       const newReportId = createData.report.id;
 
       // 步骤2: 跳转到对话页面（创建会话并绑定report）
-      router.push(`/reports/${newReportId}/chat`);
+      router.push(`/projects/${projectId}/reports/${newReportId}/chat`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "审查过程中发生错误");
       setReviewStep("error");
