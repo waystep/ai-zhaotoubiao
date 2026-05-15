@@ -41,6 +41,7 @@ interface ParsedBlock {
   blockType: string | null;
   content: string;
   bbox: { x0: number; y0: number; x1: number; y1: number };
+  imagePath?: string | null;
 }
 
 interface ParsedResult {
@@ -792,7 +793,7 @@ export default function DocumentDetailPage() {
                         }).map((image) => {
                           // 通过 imagePath 匹配 blocks 获取精确 bbox
                           const imgBlock = parsedResult?.blocks?.find(
-                            (b: any) => b.imagePath === image.imagePath
+                            (b) => b.imagePath === image.imagePath
                           );
                           const imgPage = imgBlock?.pageNumber ?? image.pageNumber;
                           const imgIdx = imgBlock?.blockIndex ?? -1;

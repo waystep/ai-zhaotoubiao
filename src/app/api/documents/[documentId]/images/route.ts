@@ -4,6 +4,7 @@ import { imageRiskAnalysis } from "@/lib/db/schema";
 import { eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth/config";
+import type { InferInsertModel } from "drizzle-orm";
 
 interface RouteContext {
   params: Promise<{ documentId: string }>;
@@ -62,7 +63,7 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     await db
       .update(imageRiskAnalysis)
-      .set({ status: "pending", error: null, updatedAt: new Date() } as any)
+      .set({ status: "pending", error: null, updatedAt: new Date() } as Partial<InferInsertModel<typeof imageRiskAnalysis>>)
       .where(eq(imageRiskAnalysis.id, imageId));
 
     return NextResponse.json({ success: true, imageId });
@@ -96,7 +97,7 @@ export async function POST(request: Request, context: RouteContext) {
         confidence: null,
         error: null,
         updatedAt: new Date(),
-      } as any)
+      } as Partial<InferInsertModel<typeof imageRiskAnalysis>>)
       .where(eq(imageRiskAnalysis.documentId, documentId));
 
     // 获取重置数量

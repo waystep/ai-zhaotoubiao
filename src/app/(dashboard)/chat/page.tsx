@@ -119,29 +119,29 @@ function ChatAssistantContent() {
               const toolMap = new Map<string, {
                 toolCallId: string;
                 toolName: string;
-                state: string;
+                state: "running" | "complete" | "error";
                 input?: unknown;
                 output?: unknown;
                 errorText?: string;
               }>();
               for (const part of message.parts) {
                 if (part.type === "tool-input-available" || part.type === "tool-input-start") {
-                  const p = part as any;
+                  const p = part as { toolCallId: string; toolName?: string; input?: unknown };
                   const entry = {
                     toolCallId: p.toolCallId,
                     toolName: p.toolName || "",
-                    state: "running",
+                    state: "running" as const,
                     input: p.input,
                   };
                   toolMap.set(p.toolCallId, entry);
                 } else if (part.type === "tool-input-delta") {
-                  const p = part as any;
+                  const p = part as { toolCallId: string; inputTextDelta?: string };
                   const existing = toolMap.get(p.toolCallId);
                   if (existing) {
                     existing.input = (existing.input || "") + (p.inputTextDelta || "");
                   }
                 } else if (part.type === "tool-output-available") {
-                  const p = part as any;
+                  const p = part as { toolCallId: string; output?: unknown; error?: unknown; errorText?: string };
                   const existing = toolMap.get(p.toolCallId);
                   if (existing) {
                     existing.state = p.error ? "error" : "complete";
@@ -174,7 +174,7 @@ function ChatAssistantContent() {
                         <ToolCall
                           key={t.toolCallId}
                           toolName={t.toolName}
-                          state={t.state as any}
+                          state={t.state}
                           input={t.input}
                           output={t.output}
                           errorText={t.errorText}
@@ -186,7 +186,7 @@ function ChatAssistantContent() {
                   {/* Text messages */}
                   {message.parts.map((part, i) => {
                     if (part.type !== "text") return null;
-                    const text = (part as any).text;
+                    const text = (part as { text: string }).text;
                     if (!text?.trim()) return null;
 
                     return (

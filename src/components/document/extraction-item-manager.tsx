@@ -64,7 +64,10 @@ export function ExtractionItemManager({ documentId, projectId, items, onRefresh 
       const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       if (!res.ok) throw new Error((await res.json()).error || "保存失败");
       toast({ title: editing ? "已更新" : "已添加" }); setOpen(false); resetForm(); onRefresh();
-    } catch (e: any) { toast({ title: "保存失败", description: e.message, variant: "destructive" }); }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "保存失败";
+      toast({ title: "保存失败", description: msg, variant: "destructive" });
+    }
     finally { setSaving(false); }
   }, [form, projectId, documentId, editing, toast, resetForm, onRefresh]);
 
@@ -75,7 +78,10 @@ export function ExtractionItemManager({ documentId, projectId, items, onRefresh 
       const res = await fetch(`/api/documents/${documentId}/extraction-items/${itemId}`, { method: "DELETE" });
       if (!res.ok) throw new Error("删除失败");
       toast({ title: "已删除" }); onRefresh();
-    } catch (e: any) { toast({ title: "删除失败", description: e.message, variant: "destructive" }); }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "删除失败";
+      toast({ title: "删除失败", description: msg, variant: "destructive" });
+    }
     finally { setDeleting(null); }
   }, [documentId, toast, onRefresh]);
 
@@ -95,9 +101,6 @@ export function ExtractionItemManager({ documentId, projectId, items, onRefresh 
                 <div className="flex flex-wrap items-center gap-1.5 mb-1">
                   <Badge variant="secondary" className="text-xs">{item.title}</Badge>
                   {item.section && <Badge variant="outline" className="text-xs border-blue-300 text-blue-700">{item.section}</Badge>}
-                  {item.consequence != null && Number(item.consequence) > 0 && (
-                    <Badge variant="outline" className="text-xs text-red-500">权重: {Number(item.consequence).toFixed(2)}</Badge>
-                  )}
                 </div>
                 <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{item.checkpoint}</p>
               </div>

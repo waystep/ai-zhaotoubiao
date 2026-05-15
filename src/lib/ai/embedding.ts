@@ -29,10 +29,10 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
     throw new Error(`Embedding API error: ${response.status} ${errText}`);
   }
 
-  const data = await response.json();
+  const data = await response.json() as { data: Array<{ index: number; embedding: number[] }> };
   return data.data
-    .sort((a: any, b: any) => a.index - b.index)
-    .map((item: any) => item.embedding);
+    .sort((a, b) => a.index - b.index)
+    .map((item) => item.embedding);
 }
 
 /**
@@ -167,7 +167,7 @@ export async function generatePageEmbeddings(documentId: string): Promise<number
       chunkIndex: chunk.chunkIndex,
       pageText: chunk.text,
       blockIds: chunk.blockIds,
-      embedding: embeddings[i] as any,
+      embedding: embeddings[i],
       embeddingModel: EMBEDDING_MODEL,
     });
     count++;

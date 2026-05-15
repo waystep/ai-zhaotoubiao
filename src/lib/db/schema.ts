@@ -561,8 +561,7 @@ export const extractionItems = pgTable("extraction_items", {
     .notNull()
     .references(() => tenderProjects.id, { onDelete: "cascade" }),
   documentId: uuid("document_id")
-    .notNull()
-    .references(() => documents.id, { onDelete: "cascade" }),
+    .references(() => documents.id, { onDelete: "set null" }),
   // 标段：技术标 / 商务标
   section: varchar("section", { length: 20 }),
 

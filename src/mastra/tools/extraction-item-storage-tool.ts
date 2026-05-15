@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db } from "@/lib/db/client";
 import { extractionItems, documents } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import type { InferInsertModel } from "drizzle-orm";
 
 export const extractionItemStorageTool = createTool({
   id: "extraction-item-storage",
@@ -54,7 +55,7 @@ export const extractionItemStorageTool = createTool({
           title: item.title,
           checkpoint: item.checkpoint,
           consequence: item.consequence != null ? String(item.consequence) : null,
-          blocks: (item.blocks || []) as any,
+          blocks: (item.blocks || []) as InferInsertModel<typeof extractionItems>["blocks"],
           extractedBy: extractedBy || "extraction-agent",
           updatedAt: new Date(),
         };

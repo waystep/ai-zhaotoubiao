@@ -51,7 +51,13 @@ export async function POST(request: Request, context: RouteContext) {
           const { done, value } = await reader.read();
           if (done || aborted) break;
 
-          const v = value as any;
+          const v = value as {
+            type?: string;
+            payload?: { text?: string; toolName?: string; toolCallId?: string; error?: unknown };
+            textDelta?: string;
+            toolName?: string;
+            toolCallId?: string;
+          };
           const type = v?.type;
           if (type === "text-delta") {
             safeEnqueue(`data: ${JSON.stringify({ type: "text", text: v.payload?.text ?? v.textDelta ?? "" })}\n\n`);

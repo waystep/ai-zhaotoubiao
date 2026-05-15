@@ -5,7 +5,6 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import {
-  Bot,
   ClipboardCheck,
   FileText,
   Loader2,
@@ -57,11 +56,6 @@ function selectedProjectIdFromPath(pathname: string): string | null {
 function projectsRouteSegment(pathname: string): string | null {
   const match = pathname.match(/^\/projects\/([^/]+)/);
   return match?.[1] ?? null;
-}
-
-/** 审查报告详情（非列表、非新建、非会话）：隐藏侧栏以腾出横向空间 */
-function isProjectReportDetailFocusPath(pathname: string): boolean {
-  return /^\/projects\/[^/]+\/reports\/(?!new$)[^/]+$/.test(pathname);
 }
 
 function SidebarNavLink({
@@ -119,7 +113,6 @@ export default function DashboardLayout({
   const [pendingNavHref, setPendingNavHref] = useState<string | null>(null);
 
   const selectedProjectId = selectedProjectIdFromPath(pathname);
-  const hideSidebarForReportDetail = isProjectReportDetailFocusPath(pathname);
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId) ?? null,
     [projects, selectedProjectId]
@@ -185,22 +178,6 @@ export default function DashboardLayout({
         },
       ]
     : [];
-
-  const chatNavHref = useMemo(() => {
-    if (!pathname || pathname === "/chat") return "/chat";
-    return `/chat?from=${encodeURIComponent(pathname)}`;
-  }, [pathname]);
-
-  const globalNavigation = useMemo(
-    () => [
-      {
-        name: "AI 助手",
-        href: chatNavHref,
-        icon: Bot,
-      },
-    ],
-    [chatNavHref]
-  );
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -276,24 +253,11 @@ export default function DashboardLayout({
         </div>
       </header>
 
-      {/* 下方：Sidebar + Main 并排（报告详情页隐藏侧栏） */}
+      {/* 下方：Sidebar + Main 并排（仅在进入项目后才展示侧栏） */}
       <div className="flex min-h-0 flex-1">
-        {!hideSidebarForReportDetail && (
+        {selectedProjectId && (
           <aside className="flex w-56 shrink-0 flex-col border-r bg-card/50">
           <nav className="flex-1 space-y-1 p-3">
-            {/* 全局导航 */}
-            {globalNavigation.map((item) => (
-              <SidebarNavLink
-                key={item.name}
-                href={item.href}
-                pathname={pathname}
-                name={item.name}
-                icon={item.icon}
-                pendingHref={pendingNavHref}
-                onNavigateIntent={handleSidebarNavIntent}
-              />
-            ))}
-
             {/* 项目工作区 */}
             {selectedProjectId && (
               <>
@@ -314,11 +278,6 @@ export default function DashboardLayout({
               </>
             )}
 
-            {!selectedProjectId && pathname !== "/chat" && (
-              <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-                请在上方选择项目后进入文档管理和审查报告。
-              </div>
-            )}
           </nav>
 
           <div className="border-t p-3">

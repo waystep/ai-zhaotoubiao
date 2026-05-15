@@ -7,6 +7,39 @@ import { documents } from "@/lib/db/schema";
 
 const standardDocTypes = ["tender_doc", "legal_doc"] as const;
 
+const outputSchema = z.object({
+  projectId: z.string().uuid(),
+  isReadyForReview: z
+    .boolean()
+    .describe("True when all standard documents have completed parsing"),
+  isExtractionComplete: z
+    .boolean()
+    .describe("True when at least one standard document has extraction items (审查项) stored"),
+  totalStandardDocuments: z.number().int().nonnegative(),
+  totalExtractionItems: z.number().int().nonnegative().describe("Total extraction items across all standard docs"),
+  parseStats: z.object({
+    pending: z.number().int().nonnegative(),
+    processing: z.number().int().nonnegative(),
+    completed: z.number().int().nonnegative(),
+    failed: z.number().int().nonnegative(),
+  }),
+  documents: z.array(
+    z.object({
+      id: z.string().uuid(),
+      name: z.string(),
+      originalName: z.string(),
+      docType: z.string(),
+      parseStatus: z.enum(["pending", "processing", "completed", "failed"]),
+      parseError: z.string().nullable(),
+      parsedAt: z.string().nullable(),
+      extractionItemsCount: z.number().int().nonnegative(),
+    })
+  ),
+  summary: z.string(),
+});
+
+type ToolOutput = z.infer<typeof outputSchema>;
+
 export const getStandardDocumentsParseStatusTool = createTool({
   id: "get-standard-documents-parse-status",
   description:
@@ -14,36 +47,7 @@ export const getStandardDocumentsParseStatusTool = createTool({
   inputSchema: z.object({
     projectId: z.string().uuid().describe("Project ID"),
   }),
-  outputSchema: z.object({
-    projectId: z.string().uuid(),
-    isReadyForReview: z
-      .boolean()
-      .describe("True when all standard documents have completed parsing"),
-    isExtractionComplete: z
-      .boolean()
-      .describe("True when at least one standard document has extraction items (审查项) stored"),
-    totalStandardDocuments: z.number().int().nonnegative(),
-    totalExtractionItems: z.number().int().nonnegative().describe("Total extraction items across all standard docs"),
-    parseStats: z.object({
-      pending: z.number().int().nonnegative(),
-      processing: z.number().int().nonnegative(),
-      completed: z.number().int().nonnegative(),
-      failed: z.number().int().nonnegative(),
-    }),
-    documents: z.array(
-      z.object({
-        id: z.string().uuid(),
-        name: z.string(),
-        originalName: z.string(),
-        docType: z.string(),
-        parseStatus: z.enum(["pending", "processing", "completed", "failed"]),
-        parseError: z.string().nullable(),
-        parsedAt: z.string().nullable(),
-        extractionItemsCount: z.number().int().nonnegative(),
-      })
-    ),
-    summary: z.string(),
-  }),
+  outputSchema,
   execute: async ({ projectId }) => {
     try {
       const docs = await db.query.documents.findMany({
@@ -88,14 +92,14 @@ export const getStandardDocumentsParseStatusTool = createTool({
           id: doc.id,
           name: doc.name,
           originalName: doc.originalName,
-          docType: doc.docType as any,
-          parseStatus: (doc.parseStatus ?? "pending") as any,
+          docType: doc.docType as string,
+          parseStatus: (doc.parseStatus ?? "pending") as "pending" | "processing" | "completed" | "failed",
           parseError: doc.parseError ?? null,
           parsedAt: doc.parsedAt ? doc.parsedAt.toISOString() : null,
           extractionItemsCount: doc.extractionItemsCount || 0,
         })),
         summary,
-      } as any;
+      } as ToolOutput;
     } catch (error) {
       console.error("Failed to get standard document parse status:", error);
       return {
@@ -114,7 +118,7 @@ export const getStandardDocumentsParseStatusTool = createTool({
         summary: `Failed to get standard document parse status: ${
           error instanceof Error ? error.message : "Unknown error"
         }`,
-      } as any;
+      } as ToolOutput;
     }
   },
 });

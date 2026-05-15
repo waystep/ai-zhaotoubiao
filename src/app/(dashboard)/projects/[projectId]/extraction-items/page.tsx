@@ -73,7 +73,9 @@ export default function ExtractionItemsPage() {
       const res = await fetch(`/api/projects/${projectId}/documents`);
       if (res.ok) {
         const data = await res.json();
-        setDocs(data.documents || []);
+        // 只允许绑定招标文件
+        const allDocs = data.documents || [];
+        setDocs(allDocs.filter((d: DocInfo) => d.docType === "tender_doc"));
       }
     } catch {}
   }, [projectId]);
@@ -87,6 +89,7 @@ export default function ExtractionItemsPage() {
       const data = await res.json();
       const documents: DocInfo[] = data.documents || [];
 
+      // 从各文档拉取关联的审查项
       const results = await Promise.all(
         documents.map(async (doc) => {
           try {
@@ -107,6 +110,20 @@ export default function ExtractionItemsPage() {
       for (const docItems of results) {
         allItems.push(...docItems);
       }
+
+      // 同时拉取无文档关联的审查项
+      try {
+        const orphanRes = await fetch(`/api/extraction-items?projectId=${projectId}`);
+        if (orphanRes.ok) {
+          const orphanData = await orphanRes.json();
+          for (const item of orphanData.items || []) {
+            if (!allItems.find((e) => e.id === item.id)) {
+              allItems.push({ ...item, documentName: "未关联" });
+            }
+          }
+        }
+      } catch {}
+
       setItems(allItems);
     } catch (e) {
       console.error("Failed to fetch items:", e);
@@ -155,11 +172,11 @@ export default function ExtractionItemsPage() {
   const handleSave = useCallback(async () => {
     if (!form.title?.trim()) { toast({ title: "标题不能为空", variant: "destructive" }); return; }
     if (!form.checkpoint?.trim()) { toast({ title: "检查点不能为空", variant: "destructive" }); return; }
-    if (!form.documentId) { toast({ title: "请选择关联文档", variant: "destructive" }); return; }
     setSaving(true);
     try {
       const body = {
         projectId,
+        documentId: form.documentId || null,
         section: form.section || null,
         title: form.title,
         checkpoint: form.checkpoint,
@@ -169,16 +186,17 @@ export default function ExtractionItemsPage() {
 
       const method = editing ? "PATCH" : "POST";
       const url = editing
-        ? `/api/documents/${editing.documentId}/extraction-items/${editing.id}`
-        : `/api/documents/${form.documentId}/extraction-items`;
+        ? `/api/extraction-items/${editing.id}`
+        : "/api/extraction-items";
 
       const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       if (!res.ok) throw new Error((await res.json()).error || "保存失败");
 
       toast({ title: editing ? "已更新" : "已添加" });
       setOpen(false); resetForm(); fetchItems();
-    } catch (e: any) {
-      toast({ title: "保存失败", description: e.message, variant: "destructive" });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "保存失败";
+      toast({ title: "保存失败", description: msg, variant: "destructive" });
     } finally { setSaving(false); }
   }, [form, projectId, editing, toast, resetForm, fetchItems]);
 
@@ -186,12 +204,13 @@ export default function ExtractionItemsPage() {
     if (!confirm(`确定删除"${item.title}"？`)) return;
     setDeleting(item.id);
     try {
-      const res = await fetch(`/api/documents/${item.documentId}/extraction-items/${item.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/extraction-items/${item.id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("删除失败");
       toast({ title: "已删除" });
       fetchItems();
-    } catch (e: any) {
-      toast({ title: "删除失败", description: e.message, variant: "destructive" });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "删除失败";
+      toast({ title: "删除失败", description: msg, variant: "destructive" });
     } finally { setDeleting(null); }
   }, [toast, fetchItems]);
 
@@ -224,8 +243,9 @@ export default function ExtractionItemsPage() {
       toast({ title: `已删除 ${selectedIds.size} 条审查项` });
       setSelectedIds(new Set());
       fetchItems();
-    } catch (e: any) {
-      toast({ title: "批量删除失败", description: e.message, variant: "destructive" });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "批量删除失败";
+      toast({ title: "批量删除失败", description: msg, variant: "destructive" });
     } finally { setBatchDeleting(false); }
   }, [selectedIds, toast, fetchItems]);
 
@@ -329,11 +349,6 @@ export default function ExtractionItemsPage() {
                 <div className="min-w-0">
                   <div className="text-sm font-medium truncate">{item.title}</div>
                   <p className="text-xs text-muted-foreground line-clamp-1">{item.checkpoint}</p>
-                  {item.consequence != null && Number(item.consequence) > 0 && (
-                    <Badge variant="outline" className="text-xs text-red-500 mt-0.5">
-                      权重: {Number(item.consequence).toFixed(2)}
-                    </Badge>
-                  )}
                 </div>
                 <div className="w-16 text-center">
                   {item.section && (
@@ -364,16 +379,17 @@ export default function ExtractionItemsPage() {
           <DialogHeader>
             <DialogTitle>{editing ? "编辑审查项" : "手动添加审查项"}</DialogTitle>
             <DialogDescription>
-              {editing ? "修改审查项的内容" : "添加自定义审查项，关联到指定文档"}
+              {editing ? "修改审查项的内容" : "添加自定义审查项（仅可关联招标文件）"}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-2">
             {/* 关联文档 */}
             <div className="space-y-1.5">
-              <label className="text-sm font-medium">关联文档 <span className="text-destructive">*</span></label>
-              <Select value={form.documentId || undefined} onValueChange={(v) => setForm({ ...form, documentId: v })}>
+              <label className="text-sm font-medium">关联文档</label>
+              <Select value={form.documentId || "none"} onValueChange={(v) => setForm({ ...form, documentId: v === "none" ? "" : v })}>
                 <SelectTrigger><SelectValue placeholder="选择文档..." /></SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="none">不关联文档</SelectItem>
                   {docs.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
                 </SelectContent>
               </Select>

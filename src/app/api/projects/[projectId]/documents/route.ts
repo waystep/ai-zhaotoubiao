@@ -139,7 +139,7 @@ export async function POST(
       .values({
         projectId,
         uploadedBy: session.user.id,
-        docType,
+        docType: docType as (typeof DOC_TYPES_ALLOWED)[number],
         name: displayName,
         originalName: orig,
         fileSize: size,

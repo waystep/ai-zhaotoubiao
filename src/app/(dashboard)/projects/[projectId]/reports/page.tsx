@@ -435,11 +435,10 @@ export default function ProjectReportsPage() {
           {/* 表格样式报告列表 */}
           <div className="rounded-lg border overflow-hidden">
             {/* 表头 */}
-            <div className="grid grid-cols-[auto_1fr_auto_auto_auto_auto_auto] gap-4 bg-muted/50 px-4 py-2.5 text-xs font-medium text-muted-foreground border-b">
+            <div className="grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-4 bg-muted/50 px-4 py-2.5 text-xs font-medium text-muted-foreground border-b">
               <div className="w-4" />
               <div>文档名称</div>
               <div className="w-[100px] text-center">类型</div>
-              <div className="w-[80px] text-center">评分</div>
               <div className="w-[100px] text-center">建议</div>
               <div className="w-[80px] text-center">状态</div>
               <div className="w-[60px] text-center">操作</div>
@@ -455,7 +454,7 @@ export default function ProjectReportsPage() {
                   <div
                     key={report.id}
                     className={cn(
-                      "grid grid-cols-[auto_1fr_auto_auto_auto_auto_auto] gap-4 px-4 py-3 items-center hover:bg-muted/30 transition-colors",
+                      "grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-4 px-4 py-3 items-center hover:bg-muted/30 transition-colors",
                       isSelected && "bg-primary/5"
                     )}
                   >
@@ -491,15 +490,6 @@ export default function ProjectReportsPage() {
                         <Badge variant="outline" className="text-xs">
                           {docTypeLabel(report.document.docType)}
                         </Badge>
-                      </div>
-
-                      {/* 评分 */}
-                      <div className="w-[80px] text-center">
-                        {report.aiScore ? (
-                          <span className="text-sm font-medium text-primary">{report.aiScore}分</span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">-</span>
-                        )}
                       </div>
 
                       {/* 建议 */}

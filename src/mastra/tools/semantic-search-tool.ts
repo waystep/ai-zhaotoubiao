@@ -75,7 +75,15 @@ export const semanticSearchTool = createTool({
           )
         );
 
-        const filteredRows = (filtered as any[]).map((r: any) => ({
+        interface RawRow {
+          page_number: number;
+          chunk_index: number;
+          page_text: string;
+          block_ids: string[] | null;
+          embedding: string | number[];
+        }
+
+        const filteredRows = (filtered as unknown as Array<RawRow>).map((r) => ({
           pageNumber: r.page_number,
           chunkIndex: r.chunk_index ?? 0,
           pageText: r.page_text,
