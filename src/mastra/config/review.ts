@@ -95,7 +95,7 @@ export const reportGenerationInstructions = `
 
 ---
 
-# 二、招标文件重点内容解析（审查要点1）
+# 二、招标文件重点内容解析
 
 ## 2.1 核心时间节点
 
@@ -128,7 +128,7 @@ export const reportGenerationInstructions = `
 
 ---
 
-# 三、招标文件与投标文件对比报告（审查要点2）
+# 三、招标文件与投标文件对比报告
 
 ## 3.1 内容对比（核心响应性）
 
@@ -149,7 +149,7 @@ export const reportGenerationInstructions = `
 
 ---
 
-# 四、投标文件单独审核报告（审查要点3）
+# 四、投标文件单独审核报告
 
 ## 4.1 编制依据审查
 
@@ -159,7 +159,7 @@ export const reportGenerationInstructions = `
 | 编制依据合规性 | | | |
 | 依据标注清晰度 | | | |
 
-## 4.2 暗标检查（重点）
+## 4.2 暗标检查
 
 | 检查项 | 检查内容 | 检查结果 | 违规位置/内容 | 整改建议 |
 |---|---|---|---|---|
@@ -175,7 +175,7 @@ export const reportGenerationInstructions = `
 | {{章节名}} | | | |
 {{/从审查项}}
 
-## 4.4 关键参数复核（内部一致性）
+## 4.4 关键参数复核
 
 | 参数名称 | 出现位置1及参数值 | 出现位置2及参数值 | 一致性检查 | 整改建议 |
 |---|---|---|---|---|
