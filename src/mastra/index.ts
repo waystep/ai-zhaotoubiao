@@ -10,7 +10,6 @@ import { imageReviewAgent } from "./agents/image-review-agent";
 import { reportGenerationAgent } from "./agents/report-generation-agent";
 import { tenderReviewSupervisor } from "./agents/tender-review-supervisor";
 import { extractionAgent } from "./agents/extraction-agent";
-import { extractionTestAgent } from "./agents/extraction-test-agent";
 
 // ========== Memory 配置（共享给所有Agent）==========
 const defaultMemory = new Memory({
@@ -37,9 +36,8 @@ export const mastra = new Mastra({
     // Supervisor Agent - 总协调者（带Memory）
     "tender-review-supervisor": tenderReviewSupervisor,
 
-    // Extraction Agent - 文档提取专家（新增）
+    // Extraction Agent - 文档提取专家
     "extraction-agent": extractionAgent,
-    "extraction-test-agent": extractionTestAgent,
 
     // 专业审查智能体（子Agent）
     "image-review-agent": imageReviewAgent,
