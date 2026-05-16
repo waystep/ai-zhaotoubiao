@@ -49,9 +49,8 @@ export const reportGenerationAgent = new Agent({
       observationalMemory: {
         enabled: true,
         model: reviewModelConfig.reasoningModel,
-        messageTokens: 60000,
-        observationTokens: 90000,
-        blockAfter: 100000,
+        observation: { messageTokens: 60000, blockAfter: 90000 },
+        reflection: { observationTokens: 90000 },
       },
       generateTitle: true,
     },

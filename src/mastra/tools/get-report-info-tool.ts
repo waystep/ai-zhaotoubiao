@@ -15,9 +15,9 @@ export const getReportInfoTool = createTool({
     reportId: z.string().uuid(),
     report: z.object({
       id: z.string().uuid(),
-      status: z.string(),
-      aiScore: z.string().optional(),
-      recommendation: z.string().optional(),
+      status: z.string().nullable(),
+      aiScore: z.string().nullable(),
+      recommendation: z.string().nullable(),
       hasSummary: z.boolean(),
       summaryLength: z.number().int().nonnegative(),
     }),
@@ -52,7 +52,7 @@ export const getReportInfoTool = createTool({
         return {
           success: false,
           reportId,
-          report: { id: reportId, status: "not_found", hasSummary: false, summaryLength: 0 },
+          report: { id: reportId, status: "not_found", aiScore: null, recommendation: null, hasSummary: false, summaryLength: 0 },
           issues: { total: 0, critical: 0, major: 0, minor: 0, suggestion: 0 },
           reviewItemResults: { total: 0, pass: 0, fail: 0, needsManualReview: 0 },
           completionStatus: { hasIssues: false, hasReviewResults: false, hasSummary: false, isComplete: false },
@@ -88,7 +88,7 @@ export const getReportInfoTool = createTool({
       };
 
       // 计算完成状态
-      const hasSummary = report.summary && report.summary.length > 0;
+      const hasSummary = !!(report.summary && report.summary.length > 0);
       const summaryLength = report.summary?.length ?? 0;
       const hasIssues = issues.length > 0;
       const hasReviewResults = results.length > 0;
@@ -119,7 +119,7 @@ export const getReportInfoTool = createTool({
       return {
         success: false,
         reportId,
-        report: { id: reportId, status: "error", hasSummary: false, summaryLength: 0 },
+        report: { id: reportId, status: "error", aiScore: null, recommendation: null, hasSummary: false, summaryLength: 0 },
         issues: { total: 0, critical: 0, major: 0, minor: 0, suggestion: 0 },
         reviewItemResults: { total: 0, pass: 0, fail: 0, needsManualReview: 0 },
         completionStatus: { hasIssues: false, hasReviewResults: false, hasSummary: false, isComplete: false },

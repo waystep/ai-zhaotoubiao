@@ -23,7 +23,7 @@ export const reportStatusUpdateTool = createTool({
   outputSchema: z.object({
     success: z.boolean(),
     reportId: z.string().uuid(),
-    status: z.string(),
+    status: z.string().nullable(),
     message: z.string(),
   }),
   execute: async ({ reportId, status, completionCheck, errorMessage }) => {
