@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import AdmZip from "adm-zip";
 import type {
   MineruParseRequest,
   MineruParseResult,
@@ -7,6 +8,7 @@ import type {
   ConvertedBlock,
   MineruApiResponse,
 } from "@/types/mineru";
+import { createMineruSignedFileUrl } from "@/lib/ai/mineru-file-url";
 
 /**
  * MinerU API 客户端（简化版）
@@ -28,20 +30,47 @@ export class MineruClient {
   private apiKey: string | undefined;
   private timeout: number;
   private backend: string;
+  private provider: "local" | "cloud";
+  private cloudBaseUrl: string;
+  private cloudToken: string | undefined;
+  private cloudModel: string;
 
   constructor() {
     this.baseUrl = process.env.MINERU_API_URL || "http://127.0.0.1:8000";
     this.apiKey = process.env.MINERU_API_KEY;
     this.timeout = parseInt(process.env.MINERU_TIMEOUT || "1800", 10) * 1000;
     this.backend = process.env.MINERU_BACKEND || "hybrid-auto-engine";
+    this.provider = process.env.MINERU_PROVIDER === "cloud" ? "cloud" : "local";
+    this.cloudBaseUrl = process.env.MINERU_CLOUD_API_URL || "https://mineru.net/api/v4";
+    this.cloudToken = process.env.MINERU_CLOUD_API_TOKEN;
+    this.cloudModel = process.env.MINERU_CLOUD_MODEL || "vlm";
 
-    console.log(`[MinerU] 客户端初始化, baseUrl: ${this.baseUrl}, backend: ${this.backend}`);
+    console.log(
+      `[MinerU] 客户端初始化, provider: ${this.provider}, baseUrl: ${this.baseUrl}, backend: ${this.backend}, cloudModel: ${this.cloudModel}`
+    );
   }
 
   /**
    * 解析文档（同步方式）
    */
   async parseDocument(params: MineruParseRequest): Promise<MineruParseResult> {
+    if (this.provider === "cloud") {
+      const taskId = await this.submitCloudParseTask(params);
+      let lastStatus: Awaited<ReturnType<typeof this.getCloudTaskStatus>> | null = null;
+      const deadline = Date.now() + this.timeout;
+      while (Date.now() < deadline) {
+        lastStatus = await this.getCloudTaskStatus(taskId);
+        if (lastStatus.status === "completed") {
+          return this.getCloudParseResult(taskId);
+        }
+        if (lastStatus.status === "failed") {
+          throw new Error(lastStatus.error || "MinerU 云端解析失败");
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+      }
+      throw new Error(`MinerU 云端解析超时: ${lastStatus?.status || "unknown"}`);
+    }
+
     console.log(`[MinerU] 开始解析文档: ${params.filePath}`);
 
     if (!fs.existsSync(params.filePath)) {
@@ -89,6 +118,10 @@ export class MineruClient {
    * 异步解析（提交任务）
    */
   async submitParseTask(params: MineruParseRequest): Promise<string> {
+    if (this.provider === "cloud") {
+      return this.submitCloudParseTask(params);
+    }
+
     console.log(`[MinerU] 提交异步解析任务: ${params.filePath}`);
 
     if (!fs.existsSync(params.filePath)) {
@@ -158,6 +191,10 @@ export class MineruClient {
     progress?: number;
     error?: string;
   }> {
+    if (this.provider === "cloud") {
+      return this.getCloudTaskStatus(taskId);
+    }
+
     const response = await fetch(`${this.baseUrl}/tasks/${taskId}`, {
       headers: this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {},
     });
@@ -191,6 +228,10 @@ export class MineruClient {
    * 获取异步解析结果
    */
   async getParseResult(taskId: string): Promise<MineruParseResult> {
+    if (this.provider === "cloud") {
+      return this.getCloudParseResult(taskId);
+    }
+
     console.log(`[MinerU] 获取解析结果: ${taskId}`);
 
     const response = await fetch(`${this.baseUrl}/tasks/${taskId}/result`, {
@@ -229,6 +270,10 @@ export class MineruClient {
    * 检查 API 服务状态
    */
   async checkHealth(): Promise<boolean> {
+    if (this.provider === "cloud") {
+      return Boolean(this.cloudToken);
+    }
+
     try {
       const response = await fetch(`${this.baseUrl}/health`, {
         method: "GET",
@@ -238,6 +283,263 @@ export class MineruClient {
     } catch {
       return false;
     }
+  }
+
+  private getCloudHeaders(): HeadersInit {
+    if (!this.cloudToken) {
+      throw new Error("MINERU_CLOUD_API_TOKEN 未配置");
+    }
+    return {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${this.cloudToken}`,
+    };
+  }
+
+  private async submitCloudParseTask(params: MineruParseRequest): Promise<string> {
+    console.log(`[MinerU Cloud] 提交解析任务: ${params.filePath}`);
+
+    if (!fs.existsSync(params.filePath)) {
+      throw new Error(`文件不存在: ${params.filePath}`);
+    }
+
+    const fileUrl = createMineruSignedFileUrl(params.filePath, params.fileName);
+    const body = {
+      url: fileUrl,
+      file_url: fileUrl,
+      model_version: this.cloudModel,
+      model: this.cloudModel,
+      is_ocr: true,
+      enable_formula: params.options?.extractEquations ?? true,
+      enable_table: params.options?.extractTables ?? true,
+      language: "ch",
+    };
+
+    const response = await fetch(`${this.cloudBaseUrl}/extract/task`, {
+      method: "POST",
+      headers: this.getCloudHeaders(),
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30_000),
+    });
+
+    const result = await this.readJsonResponse(response);
+    if (!response.ok || this.isCloudError(result)) {
+      throw new Error(`提交 MinerU 云端任务失败: ${response.status} ${this.extractCloudError(result)}`);
+    }
+
+    const taskId = this.extractCloudTaskId(result);
+    if (!taskId) {
+      throw new Error(`MinerU 云端未返回 task_id: ${JSON.stringify(result).slice(0, 500)}`);
+    }
+
+    console.log(`[MinerU Cloud] 任务已提交, taskId: ${taskId}`);
+    return taskId;
+  }
+
+  private async getCloudTaskStatus(taskId: string): Promise<{
+    status: "pending" | "processing" | "completed" | "failed";
+    progress?: number;
+    error?: string;
+  }> {
+    const result = await this.fetchCloudTask(taskId);
+    const data = this.extractCloudData(result);
+    const rawStatus =
+      String(
+        data.state ??
+        data.status ??
+        data.task_status ??
+        result.state ??
+        result.status ??
+        ""
+      ).toLowerCase();
+
+    const status = this.normalizeCloudStatus(rawStatus, data);
+    return {
+      status,
+      progress: status === "completed" ? 100 : status === "pending" ? 0 : 50,
+      error: this.extractCloudError(result),
+    };
+  }
+
+  private async getCloudParseResult(taskId: string): Promise<MineruParseResult> {
+    console.log(`[MinerU Cloud] 获取解析结果: ${taskId}`);
+    const result = await this.fetchCloudTask(taskId);
+    const data = this.extractCloudData(result);
+    const status = this.normalizeCloudStatus(
+      String(data.state ?? data.status ?? result.status ?? "").toLowerCase(),
+      data
+    );
+
+    if (status !== "completed") {
+      if (status === "failed") {
+        throw new Error(this.extractCloudError(result) || "MinerU 云端解析失败");
+      }
+      return {
+        taskId,
+        status,
+        totalPages: 0,
+        fullText: "",
+        structured: {},
+        blocks: [],
+        tables: [],
+        images: [],
+        equations: [],
+        raw: result as unknown as MineruApiResponse,
+      };
+    }
+
+    const inlineResult = this.extractCloudInlineResult(data);
+    if (inlineResult) {
+      return this.convertApiResponse(inlineResult, { filePath: "", mimeType: "" }, taskId);
+    }
+
+    const zipUrl = this.extractCloudZipUrl(data);
+    if (!zipUrl) {
+      throw new Error(`MinerU 云端结果缺少下载链接: ${JSON.stringify(data).slice(0, 500)}`);
+    }
+
+    const apiResult = await this.downloadCloudZipResult(zipUrl);
+    return this.convertApiResponse(apiResult, { filePath: "", mimeType: "" }, taskId);
+  }
+
+  private async fetchCloudTask(taskId: string): Promise<Record<string, unknown>> {
+    const response = await fetch(`${this.cloudBaseUrl}/extract/task/${encodeURIComponent(taskId)}`, {
+      method: "GET",
+      headers: this.getCloudHeaders(),
+      signal: AbortSignal.timeout(30_000),
+    });
+    const result = await this.readJsonResponse(response);
+    if (!response.ok || this.isCloudError(result)) {
+      throw new Error(`查询 MinerU 云端任务失败: ${response.status} ${this.extractCloudError(result)}`);
+    }
+    return result;
+  }
+
+  private async readJsonResponse(response: Response): Promise<Record<string, unknown>> {
+    const text = await response.text();
+    if (!text) return {};
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { raw: text };
+    }
+  }
+
+  private extractCloudData(result: Record<string, unknown>): Record<string, unknown> {
+    const data = result.data;
+    if (data && typeof data === "object" && !Array.isArray(data)) {
+      return data as Record<string, unknown>;
+    }
+    return result;
+  }
+
+  private extractCloudTaskId(result: Record<string, unknown>): string | null {
+    const data = this.extractCloudData(result);
+    const taskId = data.task_id ?? data.taskId ?? result.task_id ?? result.taskId;
+    return typeof taskId === "string" ? taskId : null;
+  }
+
+  private isCloudError(result: Record<string, unknown>): boolean {
+    const code = result.code;
+    if (code === undefined || code === null || code === 0 || code === "0") return false;
+    return true;
+  }
+
+  private extractCloudError(result: Record<string, unknown>): string {
+    const data = this.extractCloudData(result);
+    const message = result.msg ?? result.message ?? data.msg ?? data.message ?? data.error ?? result.error;
+    return typeof message === "string" ? message : "";
+  }
+
+  private normalizeCloudStatus(
+    rawStatus: string,
+    data: Record<string, unknown>
+  ): "pending" | "processing" | "completed" | "failed" {
+    if (["done", "completed", "complete", "success", "succeeded", "finish", "finished"].includes(rawStatus)) {
+      return "completed";
+    }
+    if (["failed", "fail", "error", "cancelled", "canceled"].includes(rawStatus)) {
+      return "failed";
+    }
+    if (this.extractCloudZipUrl(data) || this.extractCloudInlineResult(data)) {
+      return "completed";
+    }
+    if (["pending", "waiting", "queued"].includes(rawStatus)) {
+      return "pending";
+    }
+    return "processing";
+  }
+
+  private extractCloudZipUrl(data: Record<string, unknown>): string | null {
+    const candidates = [
+      data.full_zip_url,
+      data.fullZipUrl,
+      data.result_url,
+      data.resultUrl,
+      data.zip_url,
+      data.zipUrl,
+      data.download_url,
+      data.downloadUrl,
+    ];
+
+    for (const value of candidates) {
+      if (typeof value === "string" && /^https?:\/\//.test(value)) return value;
+    }
+
+    const result = data.result;
+    if (result && typeof result === "object" && !Array.isArray(result)) {
+      return this.extractCloudZipUrl(result as Record<string, unknown>);
+    }
+
+    return null;
+  }
+
+  private extractCloudInlineResult(data: Record<string, unknown>): Record<string, unknown> | null {
+    if (data.md_content || data.content_list || data.results) return data;
+    const result = data.result;
+    if (result && typeof result === "object" && !Array.isArray(result)) {
+      const resultObj = result as Record<string, unknown>;
+      if (resultObj.md_content || resultObj.content_list || resultObj.results) return resultObj;
+    }
+    return null;
+  }
+
+  private async downloadCloudZipResult(zipUrl: string): Promise<Record<string, unknown>> {
+    const response = await fetch(zipUrl, {
+      method: "GET",
+      signal: AbortSignal.timeout(this.timeout),
+    });
+    if (!response.ok) {
+      throw new Error(`下载 MinerU 云端结果失败: ${response.status}`);
+    }
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const zip = new AdmZip(buffer);
+    const entries = zip.getEntries().filter((entry) => !entry.isDirectory);
+    const readText = (entryName: string) =>
+      zip.getEntry(entryName)?.getData().toString("utf8");
+
+    const markdownEntry = entries.find((entry) => /\.md$/i.test(entry.entryName));
+    const contentListEntry = entries.find((entry) =>
+      /content[_-]?list.*\.json$/i.test(entry.entryName)
+    );
+    const middleJsonEntry = entries.find((entry) =>
+      /middle.*\.json$/i.test(entry.entryName)
+    );
+
+    const mdContent = markdownEntry ? readText(markdownEntry.entryName) || "" : "";
+    const contentListText = contentListEntry ? readText(contentListEntry.entryName) || "" : "";
+    const middleJsonText = middleJsonEntry ? readText(middleJsonEntry.entryName) || "" : "";
+
+    return {
+      status: "success",
+      results: {
+        "cloud-result": {
+          md_content: mdContent,
+          content_list: contentListText,
+          middle_json: middleJsonText ? JSON.parse(middleJsonText) : undefined,
+        },
+      },
+    };
   }
 
   /**
