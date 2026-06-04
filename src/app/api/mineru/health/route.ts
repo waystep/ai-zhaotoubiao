@@ -7,11 +7,19 @@ import { mineruClient } from "@/lib/ai/mineru-client";
 export async function GET() {
   try {
     const isHealthy = await mineruClient.checkHealth();
+    const provider = process.env.MINERU_PROVIDER === "cloud" ? "cloud" : "local";
 
     return NextResponse.json({
       status: isHealthy ? "healthy" : "unhealthy",
-      mineruUrl: process.env.MINERU_API_URL || "http://127.0.0.1:8000",
-      backend: process.env.MINERU_BACKEND || "hybrid-auto-engine",
+      provider,
+      mineruUrl:
+        provider === "cloud"
+          ? process.env.MINERU_CLOUD_API_URL || "https://mineru.net/api/v4"
+          : process.env.MINERU_API_URL || "http://127.0.0.1:8000",
+      backend:
+        provider === "cloud"
+          ? process.env.MINERU_CLOUD_MODEL || "vlm"
+          : process.env.MINERU_BACKEND || "hybrid-auto-engine",
       timeout: parseInt(process.env.MINERU_TIMEOUT || "300", 10),
     });
   } catch (error) {
