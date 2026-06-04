@@ -8,5 +8,5 @@ export default defineConfig({
     url: process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/smart_tender_review",
   },
   verbose: true,
-  strict: true,
+  strict: false,
 });
