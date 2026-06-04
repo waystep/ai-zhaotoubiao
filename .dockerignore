@@ -1,0 +1,13 @@
+.git
+.next
+.mastra
+node_modules
+npm-debug.log*
+coverage
+uploads
+.DS_Store
+.env
+.env.*
+!.env.example
+!.env.production.example
+
