@@ -677,6 +677,11 @@ export class MineruClient {
       console.log(`[MinerU] 转换完成: ${blocks.length} 个区块, ${images.length} 个图片, ${maxPage} 页`);
     }
 
+    if (markdown.trim() && (blocks.length === 0 || blocks.every((block) => !block.content.trim()))) {
+      blocks.splice(0, blocks.length, ...this.convertMarkdownToBlocks(markdown));
+      console.log(`[MinerU] content_list 无有效文本，已从 Markdown 生成 ${blocks.length} 个区块`);
+    }
+
     // 提取标题
     const titleBlock = blocks.find((b) => b.type === "title");
     const sections = this.extractSections(blocks);
@@ -698,6 +703,46 @@ export class MineruClient {
       equations: [],
       raw: { status: "success", ...apiResult } as MineruApiResponse,
     };
+  }
+
+  private convertMarkdownToBlocks(markdown: string): ConvertedBlock[] {
+    const blocks: ConvertedBlock[] = [];
+    const parts = markdown
+      .split(/\n{2,}/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    for (const part of parts) {
+      const isTitle = /^#{1,6}\s+/.test(part);
+      const content = part.replace(/^#{1,6}\s+/, "").trim();
+      if (!content) continue;
+
+      const chunks = this.splitText(content, 1200);
+      for (const chunk of chunks) {
+        const index = blocks.length;
+        blocks.push({
+          id: `markdown_block_${index}`,
+          pageNumber: 1,
+          index,
+          type: isTitle ? "title" : "text",
+          content: chunk,
+          bbox: null,
+          level: isTitle ? (part.match(/^#+/)?.[0].length || 1) : undefined,
+        });
+      }
+    }
+
+    return blocks;
+  }
+
+  private splitText(text: string, maxLength: number): string[] {
+    if (text.length <= maxLength) return [text];
+
+    const chunks: string[] = [];
+    for (let i = 0; i < text.length; i += maxLength) {
+      chunks.push(text.slice(i, i + maxLength));
+    }
+    return chunks;
   }
 
   /**
