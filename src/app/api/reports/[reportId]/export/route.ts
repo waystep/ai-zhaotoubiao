@@ -131,6 +131,28 @@ function formatConfidence(value: unknown) {
   return confidence <= 1 ? `${Math.round(confidence * 100)}%` : `${Math.round(confidence)}%`;
 }
 
+function cleanReportText(value: unknown, fallback = "-") {
+  return safeText(value, fallback)
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .replace(/^#{1,6}\s*/gm, "")
+    .replace(/^\s*[-*]\s+/gm, "")
+    .replace(/^\s*>\s?/gm, "")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function limitText(value: unknown, maxLength: number, fallback = "-") {
+  const text = cleanReportText(value, fallback);
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength).trim()}...`;
+}
+
 function findChineseFont() {
   return fontCandidates.find((font) => fs.existsSync(font.path));
 }
@@ -144,7 +166,7 @@ function buildFileName(projectName: string, documentName: string) {
 }
 
 function addHeader(doc: PDFKit.PDFDocument) {
-  doc.fontSize(9).fillColor("#6b7280").text("智能投标审查报告", 50, 26, {
+  doc.fontSize(9).fillColor("#6b7280").text("智能招投标预审平台", 50, 26, {
     width: doc.page.width - 100,
     align: "right",
   });
@@ -152,18 +174,8 @@ function addHeader(doc: PDFKit.PDFDocument) {
   doc.fillColor("#111827");
 }
 
-function addFooter(doc: PDFKit.PDFDocument) {
-  const pageText = `第 ${doc.bufferedPageRange().count} 页`;
-  doc.fontSize(9).fillColor("#9ca3af").text(pageText, 50, doc.page.height - 36, {
-    width: doc.page.width - 100,
-    align: "center",
-  });
-  doc.fillColor("#111827");
-}
-
 function ensureSpace(doc: PDFKit.PDFDocument, height: number) {
   if (doc.y + height > doc.page.height - 64) {
-    addFooter(doc);
     doc.addPage();
     addHeader(doc);
     doc.y = 64;
@@ -183,14 +195,14 @@ function sectionTitle(doc: PDFKit.PDFDocument, title: string) {
 }
 
 function paragraph(doc: PDFKit.PDFDocument, text: string, options?: PDFKit.Mixins.TextOptions) {
-  const normalized = text.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n");
+  const normalized = cleanReportText(text).replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n");
   const blocks = normalized.split(/\n\n+/);
   blocks.forEach((block) => {
     ensureSpace(doc, 42);
     doc.x = 50;
-    doc.fontSize(10.5).fillColor("#374151").text(block.replace(/\n/g, "\n"), 50, doc.y, {
+    doc.fontSize(10).fillColor("#374151").text(block.replace(/\n/g, "\n"), 50, doc.y, {
       width: doc.page.width - 100,
-      lineGap: 5,
+      lineGap: 4,
       ...options,
     });
     doc.moveDown(0.55);
@@ -207,31 +219,74 @@ function keyValue(doc: PDFKit.PDFDocument, label: string, value: string) {
   doc.moveDown(0.45);
 }
 
-function statBox(doc: PDFKit.PDFDocument, label: string, value: string, index: number) {
+function statBox(doc: PDFKit.PDFDocument, label: string, value: string, index: number, y: number) {
   const boxWidth = 118;
   const gap = 12;
   const x = 50 + index * (boxWidth + gap);
-  const y = doc.y;
   doc.roundedRect(x, y, boxWidth, 54, 6).fillAndStroke("#f9fafb", "#e5e7eb");
   doc.fontSize(9).fillColor("#6b7280").text(label, x + 12, y + 10, { width: boxWidth - 24 });
   doc.fontSize(16).fillColor("#111827").text(value, x + 12, y + 28, { width: boxWidth - 24 });
+  doc.x = 50;
+  doc.y = y + 54;
 }
 
-function bullet(doc: PDFKit.PDFDocument, lines: Array<[string, string]>) {
-  lines.forEach(([label, value]) => {
-    ensureSpace(doc, 28);
-    const y = doc.y;
-    doc.fontSize(10).fillColor("#6b7280").text(`- ${label}:`, 50, y, {
-      width: 82,
-      continued: false,
-    });
-    doc.fillColor("#111827").text(value, 142, y, {
-      width: doc.page.width - 192,
-      lineGap: 4,
-    });
-    doc.x = 50;
-    doc.moveDown(0.3);
+function reviewResultCard(
+  doc: PDFKit.PDFDocument,
+  index: number,
+  result: ReportForExport["reviewItemResults"][number]
+) {
+  ensureSpace(doc, 82);
+  const y = doc.y;
+  const status = resultStatusLabels[result.status] || result.status;
+  const section = safeText(result.reviewItem.section, "通用");
+  const confidence = formatConfidence(result.confidence);
+  const title = safeText(result.reviewItem.title);
+  const reason = limitText(result.reason, 130);
+
+  doc.roundedRect(50, y, doc.page.width - 100, 68, 6).fillAndStroke("#ffffff", "#e5e7eb");
+  doc.fontSize(11).fillColor("#111827").text(`${index + 1}. ${title}`, 64, y + 12, {
+    width: doc.page.width - 128,
   });
+  doc
+    .fontSize(9)
+    .fillColor(result.status === "pass" ? "#047857" : result.status === "fail" ? "#b91c1c" : "#92400e")
+    .text(`${status} · ${section} · 置信度 ${confidence}`, 64, y + 32, { width: doc.page.width - 128 });
+  doc.fontSize(9.2).fillColor("#374151").text(`审查结论：${reason}`, 64, y + 50, {
+    width: doc.page.width - 128,
+    lineGap: 2,
+  });
+  doc.x = 50;
+  doc.y = y + 78;
+}
+
+function issueCard(doc: PDFKit.PDFDocument, index: number, issue: ReportForExport["issues"][number]) {
+  ensureSpace(doc, 98);
+  const location = issue.location as { pageNumber?: number; blockIndex?: number } | null;
+  const y = doc.y;
+  doc.roundedRect(50, y, doc.page.width - 100, 84, 6).fillAndStroke("#fff7ed", "#fed7aa");
+  doc.fontSize(11).fillColor("#111827").text(`${index + 1}. ${safeText(issue.title)}`, 64, y + 12, {
+    width: doc.page.width - 128,
+  });
+  doc
+    .fontSize(9)
+    .fillColor("#9a3412")
+    .text(
+      `${severityLabels[issue.severity] || issue.severity} · ${safeText(issue.category)} · 第 ${location?.pageNumber ?? "-"} 页`,
+      64,
+      y + 32,
+      { width: doc.page.width - 128 }
+    );
+  doc.fontSize(9.5).fillColor("#4b5563").text(limitText(issue.description, 170), 64, y + 50, {
+    width: doc.page.width - 128,
+    lineGap: 3,
+  });
+  if (issue.suggestion) {
+    doc.fontSize(9.5).fillColor("#374151").text(`建议：${limitText(issue.suggestion, 110)}`, 64, y + 68, {
+      width: doc.page.width - 128,
+    });
+  }
+  doc.x = 50;
+  doc.y = y + 94;
 }
 
 function buildPdf(report: ReportForExport) {
@@ -241,7 +296,7 @@ function buildPdf(report: ReportForExport) {
     bufferPages: true,
     info: {
       Title: `审查报告-${report.project.name}`,
-      Author: "智能投标审查智能体",
+      Author: "智能招投标预审平台",
       Subject: report.document.name,
     },
   });
@@ -257,7 +312,7 @@ function buildPdf(report: ReportForExport) {
 
   addHeader(doc);
   doc.y = 72;
-  doc.fontSize(24).fillColor("#111827").text("智能投标审查报告", { align: "center" });
+  doc.fontSize(24).fillColor("#111827").text("智能招投标预审报告", { align: "center" });
   doc.moveDown(0.4);
   doc.fontSize(11).fillColor("#6b7280").text(report.document.name, { align: "center" });
   doc.moveDown(1.2);
@@ -281,37 +336,23 @@ function buildPdf(report: ReportForExport) {
 
   sectionTitle(doc, "结果统计");
   ensureSpace(doc, 70);
-  statBox(doc, "审查项", String(resultSummary.total), 0);
-  statBox(doc, "通过", String(resultSummary.pass), 1);
-  statBox(doc, "不满足", String(resultSummary.fail), 2);
-  statBox(doc, "待复核", String(resultSummary.needsManualReview), 3);
+  const statY = doc.y;
+  statBox(doc, "审查项", String(resultSummary.total), 0, statY);
+  statBox(doc, "通过", String(resultSummary.pass), 1, statY);
+  statBox(doc, "不满足", String(resultSummary.fail), 2, statY);
+  statBox(doc, "待复核", String(resultSummary.needsManualReview), 3, statY);
   doc.x = 50;
-  doc.y += 68;
+  doc.y = statY + 68;
 
   sectionTitle(doc, "审查摘要");
-  paragraph(doc, safeText(report.summary, "暂无审查摘要。"));
+  paragraph(doc, limitText(report.summary, 900, "暂无审查摘要。"));
 
   sectionTitle(doc, "审查项结果");
   if (report.reviewItemResults.length === 0) {
     paragraph(doc, "暂无结构化审查项结果。");
   } else {
     report.reviewItemResults.forEach((result, index) => {
-      const evidenceIds = Array.isArray(result.evidenceBlockIds) ? result.evidenceBlockIds : [];
-      ensureSpace(doc, 96);
-      doc.fontSize(12).fillColor("#111827").text(`${index + 1}. ${safeText(result.reviewItem.title)}`);
-      doc.moveDown(0.35);
-      bullet(
-        doc,
-        [
-          ["所属部分", safeText(result.reviewItem.section)],
-          ["状态", resultStatusLabels[result.status] || result.status],
-          ["置信度", formatConfidence(result.confidence)],
-          ["检查点", safeText(result.reviewItem.checkpoint)],
-          ["审查理由", safeText(result.reason)],
-          ["证据区块", evidenceIds.length > 0 ? evidenceIds.join(", ") : "-"],
-        ],
-      );
-      doc.moveDown(0.55);
+      reviewResultCard(doc, index, result);
     });
   }
 
@@ -320,23 +361,7 @@ function buildPdf(report: ReportForExport) {
     paragraph(doc, "暂无明确问题。");
   } else {
     report.issues.forEach((issue, index) => {
-      const location = issue.location as { pageNumber?: number; blockIndex?: number; textSnippet?: string } | null;
-      ensureSpace(doc, 112);
-      doc.fontSize(12).fillColor("#111827").text(`${index + 1}. ${safeText(issue.title)}`);
-      doc.moveDown(0.35);
-      bullet(
-        doc,
-        [
-          ["类别", safeText(issue.category)],
-          ["严重程度", severityLabels[issue.severity] || issue.severity],
-          ["状态", issue.isResolved ? "已处理" : "未处理"],
-          ["位置", `第 ${location?.pageNumber ?? "-"} 页，区块 ${location?.blockIndex ?? "-"}`],
-          ["描述", safeText(issue.description)],
-          ["建议", safeText(issue.suggestion)],
-          ["文本片段", safeText(location?.textSnippet)],
-        ],
-      );
-      doc.moveDown(0.55);
+      issueCard(doc, index, issue);
     });
   }
 
@@ -344,13 +369,11 @@ function buildPdf(report: ReportForExport) {
   doc.moveDown(0.5);
   doc.roundedRect(50, doc.y, doc.page.width - 100, 44, 6).fillAndStroke("#f5f3ff", "#ddd6fe");
   doc.fillColor("#5b21b6").fontSize(9.5).text(
-    "本报告由智能投标审查智能体生成，建议结合原始招投标文件进行人工复核。",
+    "本报告由智能招投标预审平台生成，用于辅助预审与问题定位，最终结论建议结合原始招投标文件进行人工复核。",
     62,
     doc.y + 13,
     { width: doc.page.width - 124 }
   );
-
-  addFooter(doc);
 
   return new Promise<Buffer>((resolve) => {
     doc.on("end", () => resolve(Buffer.concat(chunks)));
