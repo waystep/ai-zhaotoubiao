@@ -386,7 +386,7 @@ export default function ReportDetailPage() {
       const blob = await response.blob();
       const disposition = response.headers.get("Content-Disposition") || "";
       const fileNameMatch = disposition.match(/filename\*=UTF-8''([^;]+)/);
-      const fallbackName = `审查报告-${report.project.name}-${report.document.name}.md`;
+      const fallbackName = `审查报告-${report.project.name}-${report.document.name}.pdf`;
       const fileName = fileNameMatch ? decodeURIComponent(fileNameMatch[1]) : fallbackName;
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
