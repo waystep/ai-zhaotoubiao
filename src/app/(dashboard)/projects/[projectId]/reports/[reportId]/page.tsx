@@ -269,6 +269,7 @@ export default function ReportDetailPage() {
   const [hoveredIssueId, setHoveredIssueId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   const [selectedStandardDocId, setSelectedStandardDocId] = useState<string>("");
   const [standardBlocks, setStandardBlocks] = useState<DocumentBlock[]>([]);
@@ -368,6 +369,46 @@ export default function ReportDetailPage() {
       });
     } finally {
       setIsDeleting(false);
+    }
+  }
+
+  async function handleExport() {
+    if (!report) return;
+
+    setIsExporting(true);
+    try {
+      const response = await fetch(`/api/reports/${reportId}/export`);
+      if (!response.ok) {
+        const error = await response.json().catch(() => null);
+        throw new Error(error?.error || "导出报告失败");
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const fileNameMatch = disposition.match(/filename\*=UTF-8''([^;]+)/);
+      const fallbackName = `审查报告-${report.project.name}-${report.document.name}.md`;
+      const fileName = fileNameMatch ? decodeURIComponent(fileNameMatch[1]) : fallbackName;
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+
+      toast({
+        title: "导出成功",
+        description: "审查报告已开始下载",
+      });
+    } catch (error) {
+      toast({
+        title: "导出失败",
+        description: error instanceof Error ? error.message : "导出报告失败",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExporting(false);
     }
   }
 
@@ -595,9 +636,13 @@ export default function ReportDetailPage() {
             </Button>
           )}
           {report.status === "completed" && (
-            <Button variant="outline">
-              <Download className="mr-2 h-4 w-4" />
-              导出报告
+            <Button variant="outline" onClick={handleExport} disabled={isExporting}>
+              {isExporting ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
+              {isExporting ? "导出中" : "导出报告"}
             </Button>
           )}
           <Button
