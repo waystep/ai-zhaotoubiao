@@ -189,7 +189,7 @@ export default function DashboardLayout({
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
               <ClipboardCheck className="h-4 w-4" />
             </div>
-            <span className="text-sm font-semibold">智能投标预审智能体</span>
+            <span className="text-sm font-semibold">智能招投标预审平台</span>
           </Link>
 
           {/* 项目选择器 + 用户信息 - 靠右 */}
